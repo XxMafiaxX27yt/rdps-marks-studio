@@ -1,0 +1,15 @@
+{
+  "_help": "Subject groups (streams). 'core' = subjects every student of the group takes. Each list in 'choices' = pick one of these. One extra (6th) subject is allowed as an additional subject.",
+  "groups": [
+    {"id": "A", "name": "Science (Non-Medical)", "aliases": ["non medical", "non-medical", "nonmedical", "pcm", "science non medical"],
+     "core": ["301", "041", "042", "043"], "choices": [["030", "048", "083"]]},
+    {"id": "B", "name": "Science (Medical)", "aliases": ["medical", "pcb", "science medical"],
+     "core": ["301", "042", "043"], "choices": [["041", "843", "048"], ["044", "048"]]},
+    {"id": "C", "name": "Commerce with Maths", "aliases": ["commerce with maths", "commerce maths", "commerce with mathematics"],
+     "core": ["301", "041", "055", "054", "030"], "choices": []},
+    {"id": "D", "name": "Commerce without Maths", "aliases": ["commerce without maths", "commerce", "commerce non maths"],
+     "core": ["301", "055", "054", "030"], "choices": [["843", "048"]]},
+    {"id": "E", "name": "Humanities", "aliases": ["humanities", "arts", "humanity"],
+     "core": ["301", "037", "028", "030"], "choices": [["041", "048", "843"]]}
+  ]
+}

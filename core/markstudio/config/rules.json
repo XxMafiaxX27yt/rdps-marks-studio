@@ -1,0 +1,73 @@
+{
+  "_help": "School rules. These are editable defaults (website Settings or this file). They are NOT official CBSE rules unless the school says so.",
+  "school_name": "Rukmini Devi Public School",
+  "school_short": "RDPS",
+  "school_place": "Delhi",
+  "academic_year": "2025-26",
+
+  "classes": {
+    "XI": {"label": "Class XI", "aliases": ["11", "xi", "11th", "eleven", "eleventh", "class 11", "class xi"],
+            "exams": ["PT1", "HY", "PT2", "YE"]},
+    "XII": {"label": "Class XII", "aliases": ["12", "xii", "12th", "twelve", "twelfth", "class 12", "class xii"],
+             "exams": ["PT1", "HY", "PT2", "PB"]}
+  },
+
+  "exams": {
+    "PT1": {"name": "Periodic Test 1", "kind": "pt",
+            "aliases": ["pt1", "pt 1", "pt-1", "pt i", "periodic test 1", "periodic test i", "periodic test-1", "unit test 1", "ut1", "ut 1", "ut-1", "test 1", "first periodic test", "periodic 1"]},
+    "HY":  {"name": "Half Yearly", "kind": "major",
+            "aliases": ["hy", "half yearly", "half-yearly", "halfyearly", "half yearly exam", "mid term", "midterm", "mid-term", "term 1", "term i", "half year", "h.y.", "half yrly"]},
+    "PT2": {"name": "Periodic Test 2", "kind": "pt",
+            "aliases": ["pt2", "pt 2", "pt-2", "pt ii", "periodic test 2", "periodic test ii", "periodic test-2", "unit test 2", "ut2", "ut 2", "ut-2", "test 2", "second periodic test", "periodic 2"]},
+    "YE":  {"name": "Yearly", "kind": "major",
+            "aliases": ["ye", "yearly", "annual", "annual exam", "final", "final exam", "finals", "session ending", "year end", "yearly exam", "term 2", "term ii"]},
+    "PB":  {"name": "Preboard", "kind": "major",
+            "aliases": ["pb", "preboard", "pre board", "pre-board", "pre boards", "preboards", "pre-boards", "prebo"]}
+  },
+
+  "max_marks": {
+    "pt":    {"theory_only": {"theory": 40}, "with_practical": {"theory": 40}},
+    "major": {"theory_only": {"theory": 80}, "with_practical": {"theory": 70, "practical": 30}}
+  },
+
+  "pass_percent": 33,
+  "pass_each_part": true,
+
+  "strong_gap": 5,
+  "weak_gap": 5,
+  "attention_class_gap": 10,
+  "drop_alert_gap": 5,
+
+  "leave_codes": [
+    {"code": "AB", "label": "Absent", "counts_as_fail": true,
+     "aliases": ["ab", "a", "abs", "absent", "ab.", "a.b.", "abst"]},
+    {"code": "ML", "label": "Medical leave", "counts_as_fail": false,
+     "aliases": ["ml", "m.l.", "m.l", "med", "medical", "medical leave"]},
+    {"code": "DL", "label": "Duty leave", "counts_as_fail": false,
+     "aliases": ["dl", "d.l.", "d.l", "duty", "duty leave", "sports", "sports leave", "sl"]},
+    {"code": "EX", "label": "Exempted", "counts_as_fail": false,
+     "aliases": ["ex", "exempt", "exempted", "exm", "exem"]},
+    {"code": "NA", "label": "Not applicable", "counts_as_fail": false,
+     "aliases": ["na", "n/a", "n.a.", "-", "--", "nil", "not applicable"]}
+  ],
+  "blank_means": "AB",
+
+  "grades": [
+    {"grade": "A1", "min": 91},
+    {"grade": "A2", "min": 81},
+    {"grade": "B1", "min": 71},
+    {"grade": "B2", "min": 61},
+    {"grade": "C1", "min": 51},
+    {"grade": "C2", "min": 41},
+    {"grade": "D",  "min": 33},
+    {"grade": "E",  "min": 0}
+  ],
+
+  "score_bins": [0, 33, 40, 50, 60, 70, 80, 90, 100],
+
+  "board": {
+    "language_codes": ["301", "302", "322", "184", "085", "002"],
+    "pi_weights": {"A1": 8, "A2": 7, "B1": 6, "B2": 5, "C1": 4, "C2": 3, "D1": 2, "D2": 1, "E": 0},
+    "fail_grades": ["E"]
+  }
+}

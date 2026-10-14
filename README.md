@@ -1,0 +1,101 @@
+# RDPS Marks Studio
+
+A website for **Rukmini Devi Public School, Delhi** that turns a file of student marks into one complete,
+beautiful Excel report, with dashboards, report cards, analysis, real Excel charts and a validation report.
+You can also ask questions about the marks in plain English or Hinglish, typed or spoken.
+
+**Everything runs inside the browser on the school computer. Marks are never uploaded anywhere.**
+
+---
+
+## For teachers
+
+1. Open the website in Chrome or Edge. The first visit takes a few seconds; after that it opens instantly and works offline.
+2. **School results → Upload**: drop the marks file(s). Excel, old .xls, CSV, PDF and scanned *printed* sheets all work.
+   The CBSE result gazette (.TXT) goes to **Board results** automatically.
+3. **Check**: see what each column was understood as. Amber boxes need a click to confirm. Your choices are remembered.
+4. **Review**: dashboard, every student, subjects, progress and report cards.
+5. **Download**: the Excel workbook (with or without buttons), PDF report cards, or a template filled with the students.
+
+The first time you open an Excel file *with buttons*, Windows may block the macros:
+right-click the file → **Properties** → tick **Unblock** → OK.
+
+## What is in the Excel workbook
+
+| Sheet | What it shows |
+|---|---|
+| Dashboard | Pick class / exam / section: students, class average, highest %, pass rate, top scorer, 4 charts |
+| Report Card | Pick a student and exam: marks, %, class average, grade, gentle status, rule-based remarks, 3 charts |
+| Subject Analysis | Averages, highest, lowest, pass %, theory vs practical, trend of a subject across exams |
+| Marks Analysis | Two-exam scatter, spread of marks, grades pie, results doughnut |
+| Progress | Overall % in every exam, the change, most improved, watch list |
+| Marks Matrix | One row per student per exam: **correct marks here** and everything updates |
+| Subject Results | The engine: every subject result with status, %, grade, pass, label and the reason in words |
+| Student Master | Every student once (names, parents, class, section, group, subjects) |
+| Validation Report | Everything that was checked, with the exact cell it came from |
+| Config | The rules (pass mark, thresholds, grades, leave codes); change the yellow cells |
+| Source Data | An exact, protected copy of what was uploaded |
+
+Totals, percentages, labels, reasons, ranks and charts are **Excel formulas**, so corrections flow through.
+Only Excel 2010+ functions are used.
+
+## Accuracy
+
+* Marks are read exactly (decimals like 37.5 stay exact). Blank, zero and leave codes (AB / ML / DL / EX / NA) are always different things.
+* Nothing is guessed: impossible marks (65 in a /30 practical, 45 in a /40 test, letters instead of numbers) are flagged and left out until corrected. The original file is never changed, and corrections are listed with the old value.
+* Every result is computed **twice, in two independent ways**. If they ever disagree, no workbook is made.
+* The workbook's formulas were checked in real Excel: all 76,050 formulas give exactly the same answers as the website (`tools\check_excel.bat`).
+* The CBSE gazette reader counts every candidate and compares with CBSE's own "TOTAL CANDIDATES / PASS / COMPTT" line.
+
+## For the developer
+
+Everything is in plain Python (the engine) and plain JavaScript (the website). No build tools are needed.
+
+| Double-click | What it does |
+|---|---|
+| `tools\setup.bat` | One time: installs the Python packages used for tests |
+| `tools\run_tests.bat` | Runs all automatic tests (42 tests) |
+| `tools\serve.bat` | Opens the website on this laptop (http://localhost:8765) |
+| `tools\build_web.bat` | After changing anything in `core\`: copies it into `web\` |
+| `tools\check_excel.bat` | Opens a test workbook in real Excel and compares every formula; runs the macros |
+
+### Folders
+
+```
+core/markstudio/       the engine (Python) - the same code runs in the browser and in the tests
+  config/              subjects.json, rules.json, groups.json, intents.json  (editable)
+  readers.py           any file -> grids of text (Excel, xls, csv, PDF/scan words)
+  gazette.py           the CBSE result gazette
+  layout.py            works out what each column means (proposes; the teacher confirms)
+  build.py             files + confirmed columns -> students and mark records, all checks
+  calc.py / verify.py  the arithmetic, and the independent second calculation
+  views.py             numbers for the website and the workbook (always the same)
+  board.py             board results: best 5, PI, toppers, year on year, school vs boards
+  query.py / nlu.py    questions in plain words -> approved operations only
+  commands.py          "change the Excel with words"
+  excel/               workbook writer, board workbook, template, theme, macros (VBA)
+  api.py               what the website calls
+web/                   the website (publish this folder)
+  js/worker.js         runs the Python engine in the browser (Pyodide)
+  js/ai-worker.js      on-device AI: question understanding + voice (transformers.js)
+  vendor/              all libraries, stored locally (nothing loads from other sites)
+tests/                 automatic tests
+tools/                 the .bat helpers
+private/               real school files for testing ONLY - never published (in .gitignore)
+```
+
+### Changing rules
+
+Use the website's **Settings** page (saved in the browser; Export / Import to share with other PCs),
+or edit `core/markstudio/config/*.json` and run `build_web.bat`.
+
+### Macros
+
+The VBA project (`vbaProject.bin`) is generated directly from `core/markstudio/excel/macros.bas`
+by `excel/vba.py`. No manual Excel steps are needed. Excel compiles the macros the first time the file is opened.
+
+### Privacy
+
+The page carries a Content-Security-Policy that only allows it to load its own files and, for the optional
+on-device AI, the model files from Hugging Face. Student data has nowhere to go. The AI models run on the
+computer's processor (no GPU needed); questions and voice recordings never leave the browser.
