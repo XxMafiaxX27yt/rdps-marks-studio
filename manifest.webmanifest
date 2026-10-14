@@ -1,0 +1,13 @@
+{
+  "name": "RDPS Marks Studio",
+  "short_name": "RDPS Marks",
+  "description": "Rukmini Devi Public School - marks analysis and Excel reports, processed on this computer.",
+  "start_url": "./#/school",
+  "display": "standalone",
+  "background_color": "#0B3C5D",
+  "theme_color": "#0B3C5D",
+  "icons": [
+    {"src": "assets/img/icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "assets/img/rdps-logo.png", "sizes": "512x512", "type": "image/png"}
+  ]
+}
