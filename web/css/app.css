@@ -396,6 +396,8 @@ table.t td.wrap { white-space: normal; min-width: 260px; }
 .kpi .l .qmark { width: 16px; height: 16px; font-size: .64rem; }
 .modal:has(.ex-player) { max-width: 760px; }
 .modal .ex-player { width: 100%; }
+.ex-videobox video { width: 100%; border-radius: 14px; background: #0B3C5D; display: block; aspect-ratio: 16 / 9; }
+.ex-mode button { font-size: .8rem; padding: 5px 10px; }
 .ex-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 10px; }
 .ex-head h2 { margin: 0; }
 .ex-stage { position: relative; border-radius: 16px; background: linear-gradient(160deg, var(--tint-2), var(--tint)); border: 1px solid var(--line);
