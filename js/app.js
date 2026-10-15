@@ -7,9 +7,11 @@ import * as boardPage from "./pages/board.js";
 import * as ask from "./pages/ask.js";
 import * as settingsPage from "./pages/settings.js";
 import * as extra from "./pages/extra.js";
+import * as teachersPage from "./pages/teachers.js";
+import * as explain from "./explain.js";
 import { startTour } from "./tour.js";
 
-const PAGES = { school, board: boardPage, ask, template: extra.template, settings: settingsPage, help: extra.help };
+const PAGES = { school, board: boardPage, ask, teachers: teachersPage, template: extra.template, settings: settingsPage, help: explain.page };
 
 // ---------------------------------------------------------------- theme
 function applyTheme() {
@@ -111,6 +113,7 @@ async function boot() {
   }
   const rem = LS.get("rdps.remembered", null);
   if (rem) await engine.call("load_remembered", JSON.stringify(rem));
+  try { await teachersPage.syncTeachers(); } catch { /* teachers are optional */ }
   render();
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
     navigator.serviceWorker.register("sw.js").catch(() => {});

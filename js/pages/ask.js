@@ -3,6 +3,7 @@ import * as engine from "../engine.js";
 import { S, prefs, savePrefs } from "../state.js";
 import { $, $$, esc, toast, chart, table, cssVar } from "../ui.js";
 import * as ai from "../ai.js";
+import { qmark } from "../explain.js";
 
 const rerender = () => window.__render();
 let recorder = null;
@@ -16,7 +17,7 @@ export function html() {
     aiState.embed === "ready" ? "✨ Smart understanding on (on-device AI)" :
     aiState.embed === "loading" ? `✨ Loading smart understanding… ${aiState.embedPct || 0}% (one time)` :
     aiState.embed === "error" ? "Smart understanding could not load - keyword understanding is used" : "Keyword understanding";
-  return `<div class="page-head"><div><h1>Ask about the marks</h1>
+  return `<div class="page-head"><div><h1>Ask about the marks ${qmark("ask")}</h1>
       <p>Type or speak a question in your own words - English or Hinglish. Every number comes from the checked marks, and each answer says how it was worked out.</p></div>
       <span class="badge b-info" id="ai-state">${esc(aiTxt)}</span></div>
     ${!ready ? `<div class="card empty"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4V5z"/></svg>
@@ -29,7 +30,7 @@ export function html() {
         <div class="chat-input">
           <button class="mic" id="mic" title="Ask by voice" aria-label="Ask by voice"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
           <span class="wave hidden" id="wave">${"<i></i>".repeat(14)}</span>
-          <input type="text" id="ask-input" placeholder="e.g. Who is weak in Maths but strong in Physics?" autocomplete="off">
+          <input type="text" id="ask-input" placeholder="e.g. Who is weak in Maths but strong in Science in class 9?" autocomplete="off">
           <div class="seg" title="Language you will speak in"><button class="${prefs.voiceLang === "en" ? "on" : ""}" data-lang="en">EN</button><button class="${prefs.voiceLang === "hi" ? "on" : ""}" data-lang="hi">हिं</button></div>
           <button class="btn btn-primary" id="ask-go">Ask</button>
         </div>
@@ -38,7 +39,7 @@ export function html() {
 }
 
 function welcome(sugg) {
-  return `<div class="msg bot"><b>Hi! Ask me about the uploaded marks.</b><p class="muted small" style="margin:6px 0 0">For example: “${esc(sugg[0] || "Top 5 in Class XI")}”, “Which subject is hardest?”, “Compare section A and B”, “Physics mein kaun kamzor hai?”.
+  return `<div class="msg bot"><b>Hi! Ask me about the uploaded marks.</b><p class="muted small" style="margin:6px 0 0">For example: “${esc(sugg[0] || "Top 5 in Class XI")}”, “Result of class 6”, “Section toppers of class 12”, “Who failed in more than one subject?”, “How are the Physics teachers doing?”, “Physics mein kaun kamzor hai?”.
     If I'm not sure, I'll ask you instead of guessing.</p></div>`;
 }
 

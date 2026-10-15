@@ -1,5 +1,5 @@
 {
- "version": "5e4a365d32a1",
+ "version": "e4b802cb5bea",
  "wheels": [
   "et_xmlfile-2.0.0-py3-none-any.whl",
   "openpyxl-3.1.5-py2.py3-none-any.whl",
@@ -19,12 +19,14 @@
   "js/ai.js",
   "js/app.js",
   "js/engine.js",
+  "js/explain.js",
   "js/files.js",
   "js/pages/ask.js",
   "js/pages/board.js",
   "js/pages/extra.js",
   "js/pages/school.js",
   "js/pages/settings.js",
+  "js/pages/teachers.js",
   "js/report.js",
   "js/state.js",
   "js/tour.js",

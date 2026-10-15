@@ -6,13 +6,18 @@ const TOURS = {
     [".brand", "RDPS Marks Studio", "A website that turns any marks file into a complete Excel report. It runs inside the browser - marks never leave this computer."],
     [".stepper", "Four simple steps", "Upload → Check → Review → Download. The tool shows exactly what it understood before it makes anything."],
     ["#drop", "Any format", "Excel, old .xls, CSV, the CBSE result gazette, PDFs - even scanned printed sheets. Several files at once."],
-    ["#sample", "Try it instantly", "Sample data with made-up students shows everything in seconds."],
+    ["#sample", "Try it instantly", "Sample data with made-up students (Classes VI, IX, X, XI, XII) shows everything in seconds."],
+    [".qmark", "Every part explained", "The ? buttons play a short walk-through of how each number is worked out - with the same explanation written below. All of them are also on the How it works page."],
     ["#engine-chip", "Works offline", "Once loaded, everything works without internet - and nothing is uploaded."],
   ],
   ask: [
     ["#ask-input", "Ask in your own words", "English or Hinglish: “Who is weak in Maths but strong in Physics?”, “Physics mein kaun kamzor hai?”"],
     ["#mic", "Or just speak", "The voice model runs on this computer - the recording never leaves it."],
     [".chips", "Suggested questions", "Built from the real subjects and names in the uploaded marks."],
+  ],
+  teachers: [
+    ["#t-name", "Add a teacher once", "Name, subject and the classes they teach - the analysis appears below and in the Excel file."],
+    ["#t-analysis", "The fair check", "Each teacher's students are compared with their own average in all subjects, so a weaker section does not make the teacher look worse."],
   ],
   board: [
     ["#bdrop", "CBSE gazette", "Upload the TXT file CBSE sends - every candidate is read and the count is checked against CBSE's own total."],
