@@ -11,6 +11,7 @@ self.addEventListener("fetch", (e) => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;           // model downloads are cached by the AI library itself
+  if (url.pathname.includes("/assets/video/")) return;       // videos stream straight from the site (not kept offline)
   const big = url.pathname.includes("/vendor/") || url.pathname.includes("/py/wheels/");
   if (big) {
     e.respondWith(caches.open(VENDOR).then(async (c) => {
@@ -25,7 +26,7 @@ self.addEventListener("fetch", (e) => {
   e.respondWith(caches.open(APP).then(async (c) => {
     try {
       const res = await fetch(req);
-      if (res.ok) c.put(req, res.clone());
+      if (res.status === 200) c.put(req, res.clone()).catch(() => {});
       return res;
     } catch (err) {
       const hit = await c.match(req, { ignoreSearch: true });

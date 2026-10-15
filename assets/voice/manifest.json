@@ -1,0 +1,391 @@
+{
+ "explainers": {
+  "upload": [
+   {
+    "file": "upload-0-5f54060cc2.mp3",
+    "dur": 1.057
+   },
+   {
+    "file": "upload-1-39609c3d54.mp3",
+    "dur": 11.436
+   },
+   {
+    "file": "upload-2-b4e5147f77.mp3",
+    "dur": 6.327
+   },
+   {
+    "file": "upload-3-fa6efc0396.mp3",
+    "dur": 7.163
+   }
+  ],
+  "check": [
+   {
+    "file": "check-0-d607a0eac7.mp3",
+    "dur": 1.138
+   },
+   {
+    "file": "check-1-aeb5eb98af.mp3",
+    "dur": 6.873
+   },
+   {
+    "file": "check-2-c3507a6a32.mp3",
+    "dur": 5.468
+   },
+   {
+    "file": "check-3-e427fc961b.mp3",
+    "dur": 5.84
+   }
+  ],
+  "classes": [
+   {
+    "file": "classes-0-62643322fb.mp3",
+    "dur": 2.043
+   },
+   {
+    "file": "classes-1-15747b080d.mp3",
+    "dur": 9.3
+   },
+   {
+    "file": "classes-2-c315b5f276.mp3",
+    "dur": 12.26
+   },
+   {
+    "file": "classes-3-e4d207bd64.mp3",
+    "dur": 7.384
+   }
+  ],
+  "languages": [
+   {
+    "file": "languages-0-2040c3bdfb.mp3",
+    "dur": 1.068
+   },
+   {
+    "file": "languages-1-9237d07b03.mp3",
+    "dur": 10.147
+   },
+   {
+    "file": "languages-2-f6f8c772ed.mp3",
+    "dur": 6.641
+   }
+  ],
+  "duplicates": [
+   {
+    "file": "duplicates-0-191adcc131.mp3",
+    "dur": 1.974
+   },
+   {
+    "file": "duplicates-1-dc3c3c50f6.mp3",
+    "dur": 8.139
+   },
+   {
+    "file": "duplicates-2-fa8b9d1d35.mp3",
+    "dur": 10.751
+   }
+  ],
+  "schemes": [
+   {
+    "file": "schemes-0-d525679e6c.mp3",
+    "dur": 1.869
+   },
+   {
+    "file": "schemes-1-34964bfa1a.mp3",
+    "dur": 6.444
+   },
+   {
+    "file": "schemes-2-84e89c4142.mp3",
+    "dur": 13.92
+   },
+   {
+    "file": "schemes-3-aa94220556.mp3",
+    "dur": 11.784
+   },
+   {
+    "file": "schemes-4-8dcc3a7c06.mp3",
+    "dur": 7.14
+   }
+  ],
+  "internals": [
+   {
+    "file": "internals-0-860c7a357c.mp3",
+    "dur": 1.335
+   },
+   {
+    "file": "internals-1-f02167f09b.mp3",
+    "dur": 7.105
+   },
+   {
+    "file": "internals-2-9bff9bf051.mp3",
+    "dur": 12.074
+   },
+   {
+    "file": "internals-3-7fc03962e7.mp3",
+    "dur": 7.581
+   },
+   {
+    "file": "internals-4-5293414e5e.mp3",
+    "dur": 7.616
+   }
+  ],
+  "percent": [
+   {
+    "file": "percent-0-13528016ec.mp3",
+    "dur": 2.38
+   },
+   {
+    "file": "percent-1-5838ef7db4.mp3",
+    "dur": 8.742
+   },
+   {
+    "file": "percent-2-50c0d58370.mp3",
+    "dur": 6.618
+   },
+   {
+    "file": "percent-3-8943345606.mp3",
+    "dur": 10.124
+   }
+  ],
+  "pass": [
+   {
+    "file": "pass-0-ca6cef780d.mp3",
+    "dur": 1.37
+   },
+   {
+    "file": "pass-1-6b100ec674.mp3",
+    "dur": 7.245
+   },
+   {
+    "file": "pass-2-292ba975b0.mp3",
+    "dur": 5.875
+   },
+   {
+    "file": "pass-3-00314e805a.mp3",
+    "dur": 7.953
+   }
+  ],
+  "labels": [
+   {
+    "file": "labels-0-d6d31baae4.mp3",
+    "dur": 2.659
+   },
+   {
+    "file": "labels-1-569df9e7a3.mp3",
+    "dur": 8.324
+   },
+   {
+    "file": "labels-2-6c3f1018d9.mp3",
+    "dur": 5.492
+   },
+   {
+    "file": "labels-3-b627c8d4f7.mp3",
+    "dur": 9.776
+   }
+  ],
+  "grades": [
+   {
+    "file": "grades-0-b67195d0a0.mp3",
+    "dur": 1.138
+   },
+   {
+    "file": "grades-1-5af01d4c2f.mp3",
+    "dur": 12.957
+   },
+   {
+    "file": "grades-2-9bfc1cc50a.mp3",
+    "dur": 6.281
+   }
+  ],
+  "dashboard": [
+   {
+    "file": "dashboard-0-3ecb067048.mp3",
+    "dur": 0.894
+   },
+   {
+    "file": "dashboard-1-9c39f2d2af.mp3",
+    "dur": 8.487
+   },
+   {
+    "file": "dashboard-2-1fe064d47b.mp3",
+    "dur": 9.532
+   }
+  ],
+  "students": [
+   {
+    "file": "students-0-071e0a76ca.mp3",
+    "dur": 1.254
+   },
+   {
+    "file": "students-1-9423d9a53e.mp3",
+    "dur": 10.101
+   },
+   {
+    "file": "students-2-249f8d8eb3.mp3",
+    "dur": 7.012
+   }
+  ],
+  "subjects": [
+   {
+    "file": "subjects-0-bdfcfb83c3.mp3",
+    "dur": 1.997
+   },
+   {
+    "file": "subjects-1-267cf5dc89.mp3",
+    "dur": 8.359
+   },
+   {
+    "file": "subjects-2-60dfa7b567.mp3",
+    "dur": 6.409
+   }
+  ],
+  "progress": [
+   {
+    "file": "progress-0-e698c6666d.mp3",
+    "dur": 1.591
+   },
+   {
+    "file": "progress-1-3adaad6bde.mp3",
+    "dur": 6.467
+   },
+   {
+    "file": "progress-2-b7b6a4ab63.mp3",
+    "dur": 5.828
+   }
+  ],
+  "report-card": [
+   {
+    "file": "report-card-0-68183d230e.mp3",
+    "dur": 1.602
+   },
+   {
+    "file": "report-card-1-59ff802d40.mp3",
+    "dur": 7.279
+   },
+   {
+    "file": "report-card-2-e0d5860875.mp3",
+    "dur": 7.895
+   },
+   {
+    "file": "report-card-3-59273079af.mp3",
+    "dur": 6.397
+   }
+  ],
+  "teachers": [
+   {
+    "file": "teachers-0-4d6f55925e.mp3",
+    "dur": 1.219
+   },
+   {
+    "file": "teachers-1-9134aef854.mp3",
+    "dur": 8.789
+   },
+   {
+    "file": "teachers-2-0c4ea7da02.mp3",
+    "dur": 9.369
+   },
+   {
+    "file": "teachers-3-f1e1498cdb.mp3",
+    "dur": 11.041
+   },
+   {
+    "file": "teachers-4-880d4f332d.mp3",
+    "dur": 6.711
+   }
+  ],
+  "teacher-compare": [
+   {
+    "file": "teacher-compare-0-e9fcf1f0ad.mp3",
+    "dur": 1.765
+   },
+   {
+    "file": "teacher-compare-1-03de7c9834.mp3",
+    "dur": 10.635
+   },
+   {
+    "file": "teacher-compare-2-26e02b4341.mp3",
+    "dur": 7.721
+   }
+  ],
+  "ask": [
+   {
+    "file": "ask-0-797a88ac3a.mp3",
+    "dur": 2.148
+   },
+   {
+    "file": "ask-1-7b207f005b.mp3",
+    "dur": 10.867
+   },
+   {
+    "file": "ask-2-8040910527.mp3",
+    "dur": 7.442
+   },
+   {
+    "file": "ask-3-97a4fcc349.mp3",
+    "dur": 8.127
+   }
+  ],
+  "excel": [
+   {
+    "file": "excel-0-a7781259d7.mp3",
+    "dur": 1.405
+   },
+   {
+    "file": "excel-1-f725d2b2fb.mp3",
+    "dur": 8.893
+   },
+   {
+    "file": "excel-2-13f968af7d.mp3",
+    "dur": 9.868
+   },
+   {
+    "file": "excel-3-e77b3b357b.mp3",
+    "dur": 5.155
+   }
+  ],
+  "commands": [
+   {
+    "file": "commands-0-25de331f6b.mp3",
+    "dur": 1.683
+   },
+   {
+    "file": "commands-1-ad73767736.mp3",
+    "dur": 9.288
+   },
+   {
+    "file": "commands-2-f12ad7700c.mp3",
+    "dur": 4.934
+   }
+  ],
+  "boards": [
+   {
+    "file": "boards-0-6c9e0d8e24.mp3",
+    "dur": 1.718
+   },
+   {
+    "file": "boards-1-27a5203d95.mp3",
+    "dur": 6.815
+   },
+   {
+    "file": "boards-2-56c6ee8cd0.mp3",
+    "dur": 10.89
+   },
+   {
+    "file": "boards-3-a2c5432cda.mp3",
+    "dur": 7.837
+   }
+  ],
+  "privacy": [
+   {
+    "file": "privacy-0-8541e9a4fc.mp3",
+    "dur": 0.766
+   },
+   {
+    "file": "privacy-1-237027ac32.mp3",
+    "dur": 5.445
+   },
+   {
+    "file": "privacy-2-ac29de9347.mp3",
+    "dur": 6.165
+   }
+  ]
+ },
+ "voice": "en_US-lessac-medium"
+}

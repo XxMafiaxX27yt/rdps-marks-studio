@@ -32,6 +32,7 @@ export const EXPLAINERS = [
   ] },
   { id: "classes", area: "Getting marks in", title: "Classes, sections and streams", steps: [
     { text: "Classes I to XII all work. Classes can be written any way: “Class 6”, “VI”, “6th”, “VI-A”, “6 A”.",
+      say: "Classes one to twelve all work, and a class can be written in many ways: Class 6, the Roman numeral six, sixth, six dash A, or 6 A.",
       visual: flow(chip("Class 6"), chip("VI"), chip("6th"), chip("VI-A"), arrow(), box("Class VI · Section A", "pop")) },
     { text: "Classes XI and XII have streams. Section A is PCM, B is PCM / PCB / PCMB, C is Commerce with Maths, D is Commerce without Maths, E is Humanities.",
       visual: flow(chip("A · PCM"), chip("B · PCM / PCB / PCMB"), chip("C · Commerce + Maths"), chip("D · Commerce"), chip("E · Humanities")) },
@@ -199,42 +200,88 @@ export function qmark(id, label) {
   return `<button class="qmark" type="button" data-explain="${id}" title="How this works: ${esc(e.title)}" aria-label="Explain ${esc(label || e.title)}">?</button>`;
 }
 
+// ---------------------------------------------------------------- voice + video files
+// (made by tools/make_explainer_media.py: a recorded voice for every step, and one MP4 per explainer)
+let media = null;
+async function loadMedia() {
+  if (media) return media;
+  const get = async (u) => { try { const r = await fetch(u); return r.ok ? r.json() : null; } catch { return null; } };
+  const [voice, video] = await Promise.all([get("assets/voice/manifest.json"), get("assets/video/manifest.json")]);
+  media = { voice: (voice && voice.explainers) || {}, video: video || {} };
+  return media;
+}
+const VOICE_KEY = "rdps.explainVoice";
+const voiceOn = () => { try { return localStorage.getItem(VOICE_KEY) !== "off"; } catch { return true; } };
+const setVoice = (on) => { try { localStorage.setItem(VOICE_KEY, on ? "on" : "off"); } catch { /* private mode */ } };
+
 // ---------------------------------------------------------------- the player
-export function play(id) {
+export async function play(id, startWith = "steps") {
   const e = BY_ID[id];
   if (!e) return;
-  let i = 0, timer = null, playing = true;
-  const STEP_MS = 5200;
+  const md = await loadMedia();
+  const clips = md.voice[id] || [];         // [title, step 1, step 2, ...]
+  const vid = md.video[id];
+  let i = 0, timer = null, playing = true, mode = startWith === "video" && vid ? "video" : "steps", voice = voiceOn();
+  const audio = new Audio();
+  audio.preload = "auto";
+  const stopAudio = () => { audio.pause(); audio.onended = null; };
   const m = modal(`<div class="ex-player">
       <div class="ex-head"><div><div class="tiny muted">${esc(e.area)}</div><h2>${esc(e.title)}</h2></div>
-        <button class="icon-btn" data-close aria-label="Close">✕</button></div>
+        <div class="row" style="gap:6px">
+          ${vid ? `<div class="seg ex-mode"><button data-mode="steps">Step by step</button><button data-mode="video">🎬 Video</button></div>` : ""}
+          <button class="icon-btn" data-close aria-label="Close">✕</button></div></div>
       <div class="ex-stage" aria-live="polite"><div class="ex-visual"></div><p class="ex-caption"></p></div>
+      <div class="ex-videobox hidden">${vid ? `<video class="ex-video" controls playsinline preload="metadata" src="assets/video/${esc(vid.file)}"></video>
+        <div class="row between" style="margin-top:8px"><span class="tiny muted">${Math.round(vid.dur)} seconds · with voice and the text on screen · works full screen</span>
+        <a class="btn btn-ghost btn-sm" href="assets/video/${esc(vid.file)}" download="RDPS Marks Studio - ${esc(e.title)}.mp4">⬇ Download video</a></div>` : ""}</div>
       <div class="ex-controls">
-        <button class="btn btn-ghost btn-sm" data-ex="prev">◀</button>
+        <button class="btn btn-ghost btn-sm" data-ex="prev" aria-label="Previous step">◀</button>
         <button class="btn btn-primary btn-sm" data-ex="play">❚❚ Pause</button>
-        <button class="btn btn-ghost btn-sm" data-ex="next">▶</button>
+        <button class="btn btn-ghost btn-sm" data-ex="next" aria-label="Next step">▶</button>
+        ${clips.length ? `<button class="btn btn-ghost btn-sm ex-voice" data-ex="voice" title="Voice on / off">${voice ? "🔊 Voice on" : "🔇 Voice off"}</button>` : ""}
         <div class="ex-dots">${e.steps.map((_, k) => `<button data-ex-dot="${k}" aria-label="Step ${k + 1}"></button>`).join("")}</div>
         <span class="ex-progress"><i></i></span></div>
-      <details class="ex-text" open><summary>Read it as text</summary><ol>${e.steps.map((s) => `<li>${esc(s.text)}</li>`).join("")}</ol></details>
-    </div>`, { onClose: () => clearTimeout(timer) });
+      <details class="ex-text" open><summary>Read it as text</summary><ol>${e.steps.map((st) => `<li>${esc(st.text)}</li>`).join("")}</ol></details>
+    </div>`, { onClose: () => { clearTimeout(timer); stopAudio(); const v = $(".ex-video", m.el); v && v.pause(); } });
   const root = m.el;
+  const words = (t) => t.split(/\s+/).length;
+  const stepMs = (k) => {
+    const c = clips[k + 1];
+    return voice && c ? (c.dur + 0.9) * 1000 : Math.max(5200, words(e.steps[k].text) * 330);
+  };
+  const next = () => { if (i < e.steps.length - 1) { i++; show(); } else { setPlaying(false); } };
   const show = () => {
-    const s = e.steps[i];
+    const st = e.steps[i];
     const vis = $(".ex-visual", root), cap = $(".ex-caption", root);
     vis.classList.remove("in"); cap.classList.remove("in");
     void vis.offsetWidth;
-    vis.innerHTML = s.visual;
-    cap.textContent = s.text;
+    vis.innerHTML = st.visual;
+    cap.textContent = st.text;
     vis.classList.add("in"); cap.classList.add("in");
     countUp(vis);
     $$(".ex-dots button", root).forEach((b, k) => b.classList.toggle("on", k === i));
     $$(".ex-text li", root).forEach((li, k) => li.classList.toggle("now", k === i));
+    const ms = stepMs(i);
     const prog = $(".ex-progress i", root);
     prog.style.transition = "none"; prog.style.width = "0";
     void prog.offsetWidth;
-    if (playing) { prog.style.transition = `width ${STEP_MS}ms linear`; prog.style.width = "100%"; }
+    if (playing) { prog.style.transition = `width ${ms}ms linear`; prog.style.width = "100%"; }
     clearTimeout(timer);
-    if (playing) timer = setTimeout(() => { if (i < e.steps.length - 1) { i++; show(); } else { setPlaying(false); } }, STEP_MS);
+    stopAudio();
+    if (!playing) return;
+    const c = clips[i + 1];
+    if (voice && c) {
+      audio.src = "assets/voice/" + c.file;
+      audio.currentTime = 0;
+      // the next step starts when the voice has finished (or after the time it should take, if audio is blocked)
+      let done = false;
+      const go = () => { if (!done) { done = true; clearTimeout(timer); timer = setTimeout(next, 900); } };
+      audio.onended = go;
+      audio.play().catch(() => {});
+      timer = setTimeout(go, (c.dur + 1.5) * 1000);
+    } else {
+      timer = setTimeout(next, ms);
+    }
   };
   const setPlaying = (on) => {
     playing = on;
@@ -242,7 +289,25 @@ export function play(id) {
     if (on && i === e.steps.length - 1 && !timer) i = 0;
     show();
   };
+  const setMode = (mo) => {
+    mode = mo;
+    $$("[data-mode]", root).forEach((b) => b.classList.toggle("on", b.dataset.mode === mo));
+    $(".ex-stage", root).classList.toggle("hidden", mo === "video");
+    $(".ex-controls", root).classList.toggle("hidden", mo === "video");
+    $(".ex-videobox", root).classList.toggle("hidden", mo !== "video");
+    const v = $(".ex-video", root);
+    if (mo === "video") {
+      clearTimeout(timer); timer = null; stopAudio(); playing = false;
+      $("[data-ex=play]", root).textContent = "▶ Play";
+      v && v.play().catch(() => {});
+    } else {
+      v && v.pause();
+      setPlaying(true);
+    }
+  };
   root.addEventListener("click", (ev) => {
+    const mb = ev.target.closest("[data-mode]");
+    if (mb) { setMode(mb.dataset.mode); return; }
     const b = ev.target.closest("[data-ex], [data-ex-dot]");
     if (!b) return;
     if (b.dataset.exDot !== undefined) { i = +b.dataset.exDot; show(); return; }
@@ -250,13 +315,19 @@ export function play(id) {
     if (a === "prev") { i = Math.max(0, i - 1); show(); }
     if (a === "next") { i = Math.min(e.steps.length - 1, i + 1); show(); }
     if (a === "play") { timer = null; setPlaying(!playing); }
+    if (a === "voice") {
+      voice = !voice; setVoice(voice);
+      b.textContent = voice ? "🔊 Voice on" : "🔇 Voice off";
+      show();
+    }
   });
-  show();
+  if (mode === "video") setMode("video");
+  else { $$("[data-mode]", root).forEach((x) => x.classList.toggle("on", x.dataset.mode === "steps")); show(); }
 }
 
 document.addEventListener("click", (ev) => {
   const q = ev.target.closest("[data-explain]");
-  if (q) { ev.preventDefault(); play(q.dataset.explain); }
+  if (q) { ev.preventDefault(); play(q.dataset.explain, q.dataset.explainMode || "steps"); }
 });
 
 // ---------------------------------------------------------------- "How it works" page
@@ -264,16 +335,20 @@ export const page = {
   html() {
     const areas = [...new Set(EXPLAINERS.map((e) => e.area))];
     return `<div class="page-head"><div><h1>How it works</h1>
-        <p>Every part of RDPS Marks Studio explained - press ▶ for a short walk-through, or read the text. The same explanations open from the <span class="qmark static">?</span> buttons next to each chart and number.</p></div>
+        <p>Every part of RDPS Marks Studio explained - press ▶ for a short walk-through with a voice, 🎬 for the video (it can be downloaded and shared), or read the text. The same explanations open from the <span class="qmark static">?</span> buttons next to each chart and number.</p></div>
       <div class="row"><input type="search" id="ex-search" placeholder="Search, e.g. internal, rank, teacher…" style="width:260px">
         <button class="btn btn-primary" id="tour">▶ Guided tour</button></div></div>
       ${areas.map((a) => `<section class="ex-area" data-area="${esc(a)}"><h2>${esc(a)}</h2><div class="grid g2">
         ${EXPLAINERS.filter((e) => e.area === a).map((e) => `<div class="card ex-card" data-q="${esc((e.title + " " + e.steps.map((s) => s.text).join(" ")).toLowerCase())}">
-          <div class="card-head"><h3>${esc(e.title)}</h3><button class="btn btn-soft btn-sm" data-explain="${e.id}">▶ Play</button></div>
+          <div class="card-head"><h3>${esc(e.title)}</h3><div class="row" style="gap:6px">
+            <button class="btn btn-soft btn-sm" data-explain="${e.id}">▶ Play</button>
+            <button class="btn btn-ghost btn-sm ex-vidbtn" data-explain="${e.id}" data-explain-mode="video" data-vid="${e.id}">🎬 Video</button></div></div>
           <ol class="small ex-list">${e.steps.map((s) => `<li>${esc(s.text)}</li>`).join("")}</ol></div>`).join("")}
       </div></section>`).join("")}`;
   },
   mount(root) {
+    // hide the video buttons of explainers that have no video yet
+    loadMedia().then((md) => $$(".ex-vidbtn", root).forEach((b) => { if (!md.video[b.dataset.vid]) b.remove(); }));
     const s = $("#ex-search", root);
     s && s.addEventListener("input", () => {
       const q = s.value.trim().toLowerCase();
