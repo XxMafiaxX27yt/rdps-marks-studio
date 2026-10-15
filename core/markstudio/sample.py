@@ -3,7 +3,7 @@ website's "Try sample data" button, for the demo and for the tests."""
 import random
 from decimal import Decimal
 
-from .excel.template import template_bytes, class_subjects
+from .excel.template import template_bytes
 
 FIRST_F = ["Aanya", "Ishita", "Diya", "Saanvi", "Myra", "Kavya", "Riya", "Anika", "Tanvi", "Navya", "Aditi", "Sara",
            "Meher", "Nandini", "Prisha", "Khushi", "Vanshika", "Avni", "Pari", "Jiya", "Mahika", "Siya", "Ira", "Kiara",
@@ -17,8 +17,13 @@ FATHER = ["Rajesh", "Sanjay", "Amit", "Sunil", "Vikas", "Manoj", "Rakesh", "Ajay
 MOTHER = ["Sunita", "Neha", "Pooja", "Anjali", "Rekha", "Seema", "Kavita", "Ritu", "Meenakshi", "Shalini", "Priya",
           "Monika", "Nidhi", "Swati", "Archana", "Geeta", "Shweta", "Jyoti", "Payal", "Vandana"]
 
-# section -> group mix (RDPS-like: science, commerce and humanities sections)
-SECTIONS = {"A": ["A"] * 6 + ["B"] * 4, "B": ["B"] * 6 + ["A"] * 4, "C": ["C"] * 7 + ["D"] * 3, "D": ["E"] * 10}
+# section -> group mix, like the school: A = PCM, B = PCM / PCB / PCMB, C = Commerce with Maths,
+# D = Commerce without Maths, E = Humanities
+SECTIONS = {"A": ["A"], "B": ["B"] * 4 + ["A"], "C": ["C"], "D": ["D"], "E": ["E"]}
+JUNIOR_SECTIONS = ["A", "B"]
+SAMPLE_CLASSES = ["VI", "IX", "X", "XI", "XII"]
+# which sample classes come with internal marks (the others show "marks only")
+WITH_INTERNALS = {"VI", "IX"}
 
 
 def _subjects_for(group, rnd, cfg):
@@ -30,13 +35,25 @@ def _subjects_for(group, rnd, cfg):
     return cfg.order_subjects(subs)
 
 
-def make_class(cfg, cls, seed=7, per_section=28, mistakes=False):
+def _level(v):
+    # soft ceiling: very strong students get high marks, but rarely a perfect score
+    if v > 0.85:
+        v = 0.85 + (v - 0.85) * 0.5
+    return max(0.08, min(0.99, v))
+
+
+def make_class(cfg, cls, seed=7, per_section=None, mistakes=False, internals=None):
     """-> (students, marks) in the template's shape."""
-    rnd = random.Random(seed + (11 if cls == "XII" else 0))
+    rnd = random.Random(seed + cfg.class_level(cls) * 11)
+    streams = cfg.has_streams(cls)
+    per_section = per_section or (22 if streams else 24)
+    internals = (cls in WITH_INTERNALS) if internals is None else internals
     students, marks = [], {}
-    adm = 4100 if cls == "XI" else 3800
+    adm = 1000 + cfg.class_level(cls) * 300
     used = set()
-    for sec, groups in SECTIONS.items():
+    langs = cfg.languages_for(cls)
+    offer = cfg.class_offer(cls)
+    for sec, groups in (SECTIONS.items() if streams else [(s, None) for s in JUNIOR_SECTIONS]):
         for i in range(per_section):
             girl = rnd.random() < 0.48
             while True:
@@ -46,41 +63,76 @@ def make_class(cfg, cls, seed=7, per_section=28, mistakes=False):
                     used.add((first, last))
                     break
             adm += rnd.randint(1, 4)
-            group = rnd.choice(groups)
-            subs = _subjects_for(group, rnd, cfg)
+            if streams:
+                group = rnd.choice(groups)
+                subs = _subjects_for(group, rnd, cfg)
+                lang = ""
+            else:
+                group = ""
+                lang = rnd.choice(langs) if langs else ""
+                if cls == "X" and rnd.random() < 0.6:
+                    lang = "302"                                         # Hindi or a foreign language
+                subs = cfg.order_subjects(set(offer["subjects"]) | ({lang} if lang else set()))
             st = {"adm_no": str(adm), "roll": str(i + 1), "name": f"{first} {last}",
                   "father": f"{rnd.choice(FATHER)} {last}", "mother": f"{rnd.choice(MOTHER)} {last}",
-                  "section": sec, "group": group, "subjects": subs, "gender": "F" if girl else "M"}
-            if cls == "XII":
-                st["board_roll"] = str(99100000 + len(students) * 3 + rnd.randint(0, 2))   # clearly fake range
+                  "section": sec, "group": group, "subjects": subs, "gender": "F" if girl else "M", "language": lang}
+            if cls in ("X", "XII"):
+                st["board_roll"] = str(99100000 + cfg.class_level(cls) * 1000 + len(students) * 3 + rnd.randint(0, 2))
             students.append(st)
             ability = rnd.gauss(0.70, 0.12)
             trend = rnd.gauss(0.0, 0.025)
             flair = {s: rnd.gauss(0, 0.07) for s in subs}
             for ei, ex in enumerate(cfg.class_exams(cls)):
                 for s in subs:
+                    sc = cfg.scheme(cls, s, ex)
+                    if not sc:
+                        continue
                     level = ability + flair[s] + trend * ei + rnd.gauss(0, 0.05)
-                    for comp, mx in cfg.components(s, ex).items():
-                        lv = level + (0.10 if comp == "practical" else 0)
-                        # soft ceiling: very strong students get high marks, but rarely a perfect score
-                        if lv > 0.85:
-                            lv = 0.85 + (lv - 0.85) * 0.5
-                        lv = max(0.08, min(0.99, lv))
-                        val = round(float(mx) * lv * 2) / 2 if comp == "theory" and float(mx) >= 70 else round(float(mx) * lv)
-                        val = max(0, min(float(mx), val))
-                        marks[(st["adm_no"], ex, s, comp)] = _txt(val)
+                    mx = float(sc["theory"])
+                    lv = _level(level)
+                    val = round(mx * lv * 2) / 2 if mx >= 70 else round(mx * lv)
+                    marks[(st["adm_no"], ex, s, "theory")] = _txt(max(0, min(mx, val)))
+                    second = sc["second"]
+                    if second and not second["parts"]:
+                        pm = float(second["max"])
+                        marks[(st["adm_no"], ex, s, "practical")] = _txt(max(0, min(pm, round(pm * _level(level + 0.10)))))
+                    elif second and internals:
+                        for key, pmx in second["parts"]:
+                            if key == "i_pt":
+                                continue
+                            pm = float(pmx)
+                            marks[(st["adm_no"], ex, s, key)] = _txt(max(0, min(pm, round(pm * _level(level + 0.12)))))
                 # a few absences / leaves
                 if rnd.random() < 0.03:
                     s = rnd.choice(subs)
-                    for comp in cfg.components(s, ex):
+                    for comp in cfg.components(cls, s, ex):
                         marks[(st["adm_no"], ex, s, comp)] = "AB"
                 if rnd.random() < 0.015:
                     s = rnd.choice(subs)
-                    for comp in cfg.components(s, ex):
+                    for comp in cfg.components(cls, s, ex):
                         marks[(st["adm_no"], ex, s, comp)] = "ML"
-    if mistakes:
+    if mistakes and streams:
         _plant_mistakes(cfg, cls, students, marks, rnd)
     return students, marks
+
+
+def sample_teachers(cfg, cls):
+    """Made-up teachers for the sample classes (names are invented)."""
+    T = {
+        "VI": [("Ms. Kavita Anand", "301", "VI-A, VI-B"), ("Mr. Rohit Bhalla", "041", "VI-A"), ("Ms. Neha Gupta", "041", "VI-B"),
+               ("Ms. Ritu Saxena", "086", "VI-A, VI-B"), ("Mr. Ajay Kohli", "087", "VI-A, VI-B"), ("Ms. Pooja Arora", "302", "VI-A, VI-B")],
+        "IX": [("Ms. Shalini Batra", "301", "IX-A, IX-B"), ("Mr. Vinod Chawla", "041", "IX-A, IX-B"),
+               ("Ms. Anjali Dua", "086", "IX-A"), ("Mr. Sanjay Garg", "086", "IX-B"), ("Ms. Monika Jain", "843", "IX-A, IX-B")],
+        "X": [("Ms. Shalini Batra", "301", "X-A, X-B"), ("Mr. Vinod Chawla", "041", "X-A"), ("Mr. Manoj Khanna", "041", "X-B"),
+              ("Mr. Sanjay Garg", "086", "X-A, X-B"), ("Ms. Rekha Luthra", "087", "X-A, X-B")],
+        "XI": [("Mr. Amit Verma", "042", "XI-A, XI-B"), ("Ms. Sunita Rao", "043", "XI-A"), ("Mr. Deepak Sethi", "043", "XI-B"),
+               ("Ms. Nidhi Kapoor", "041", "XI-A, XI-B, XI-C"), ("Ms. Swati Menon", "301", "XI-A, XI-B, XI-C, XI-D, XI-E"),
+               ("Mr. Alok Tandon", "055", "XI-C, XI-D"), ("Ms. Geeta Pillai", "030", "XI-C, XI-D, XI-E")],
+        "XII": [("Mr. Amit Verma", "042", "XII-A"), ("Ms. Priya Desai", "042", "XII-B"), ("Ms. Sunita Rao", "043", "XII-A, XII-B"),
+                ("Mr. Rahul Nair", "041", "XII-A, XII-B, XII-C"), ("Ms. Archana Iyer", "301", "XII-A, XII-B, XII-C, XII-D, XII-E"),
+                ("Mr. Alok Tandon", "055", "XII-C, XII-D"), ("Ms. Vandana Shetty", "028", "XII-E")],
+    }
+    return [{"name": n, "subject": s, "classes": c} for n, s, c in T.get(cls, [])]
 
 
 def _txt(v):
@@ -107,13 +159,10 @@ def _plant_mistakes(cfg, cls, students, marks, rnd):
 def sample_files(cfg, mistakes=False):
     """-> list of (file name, bytes): one workbook per class in the template layout."""
     out = []
-    for cls in ("XI", "XII"):
+    for cls in SAMPLE_CLASSES:
         students, marks = make_class(cfg, cls, mistakes=mistakes)
-        if cls == "XII":
-            exams = cfg.class_exams(cls)
-        else:
-            exams = cfg.class_exams(cls)
-        data = template_bytes(cfg, cls, students, marks, exams=exams, title_note="(sample data - made-up students)")
+        data = template_bytes(cfg, cls, students, marks, exams=cfg.class_exams(cls),
+                              title_note="(sample data - made-up students)", teachers=sample_teachers(cfg, cls))
         out.append((f"Sample {cfg.class_label(cls)} marks{' (with mistakes)' if mistakes else ''}.xlsx", data))
     return out
 

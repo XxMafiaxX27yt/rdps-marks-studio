@@ -23,7 +23,7 @@ SETTING_NAMES = {"pass_percent": "pass mark (%)", "weak_gap": "weak threshold (p
 COLOR_WORDS = ["red", "green", "amber", "orange", "yellow", "blue"]
 KIND_WORDS = [("doughnut", ["doughnut", "donut", "ring"]), ("pie", ["pie"]), ("line", ["line", "trend"]),
               ("bar", ["bar", "horizontal"]), ("radar", ["radar", "spider"]), ("column", ["column", "vertical"])]
-BASE_SHEETS = ["Dashboard", "Report Card", "Subject Analysis", "Marks Analysis", "Progress", "Marks Matrix",
+BASE_SHEETS = ["Dashboard", "Report Card", "Subject Analysis", "Marks Analysis", "Progress", "Overview", "Teachers",
                "Subject Results", "Student Master", "Validation Report", "Config", "Source Data", "My Charts"]
 
 
@@ -78,7 +78,7 @@ def parse_command(text, ds, res, recipe, cfg):
         word = {"<": "below", "<=": "at or below", ">": "above", ">=": "at or above"}[op]
         what = f"{cfg.subject_name(item['subject'])} marks" if item["subject"] else "students' overall %"
         return {"item": item, "description": f"Highlight {what} {word} {fmt(val)}% in {color}"
-                + (f" ({cfg.exam_name(item['exam'])})" if item["exam"] else "") + " on the Marks Matrix and Subject Results."}
+                + (f" ({cfg.exam_name(item['exam'])})" if item["exam"] else "") + " on the Overview and Subject Results."}
     # chart
     if _has(low, ["chart", "graph", "plot", "diagram", "visual"]):
         metric = "average"
@@ -112,8 +112,9 @@ def parse_command(text, ds, res, recipe, cfg):
         if e["exams"] and by != "exam":
             filters["exam"] = e["exams"][0]
         if by != "class" and not filters.get("cls") and len(ds.classes()) > 1:
-            filters["cls"] = ds.classes()[0]
-            cls_note = f" (Class {filters['cls']} - say 'class XII' for the other class)"
+            with_subj = [c for c in ds.classes() if not filters.get("subject") or filters["subject"] in ds.subjects_for(c)]
+            filters["cls"] = (with_subj or ds.classes())[0]
+            cls_note = f" (Class {filters['cls']} - name a class, e.g. 'class 9', for another one)"
         else:
             cls_note = ""
         if by == "exam" and not filters.get("cls") and ds.classes():

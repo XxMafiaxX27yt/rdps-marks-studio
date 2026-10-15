@@ -12,7 +12,9 @@ from . import views
 
 OPS = {"top", "bottom", "list", "count", "average", "highest", "lowest", "hardest", "easiest", "compare",
        "student", "student_subjects", "rank", "pass_rate", "distribution", "improved", "dropped", "absent",
-       "help", "board_top", "board_subject", "board_summary", "board_comp", "board_student"}
+       "help", "board_top", "board_subject", "board_summary", "board_comp", "board_student", "summary", "toppers_by",
+       "teacher"}
+COMBO_SETS = {"*Commerce": {"Commerce with Maths", "Commerce"}, "*Science": {"PCM", "PCB", "PCMB", "Science"}}
 LABELS = {"Strong", "Weak", "Needs attention", "On track"}
 
 
@@ -25,9 +27,10 @@ def _p(d):
 
 
 class Engine:
-    def __init__(self, ds=None, res=None, board=None):
+    def __init__(self, ds=None, res=None, board=None, teachers=None):
         self.ds, self.res, self.board = ds, res, board
         self.cfg = ds.cfg if ds else None
+        self.teachers = teachers or []
 
     # ------------------------------------------------------------ checking
     def validate(self, q):
@@ -57,6 +60,8 @@ class Engine:
                 raise QueryError("Unknown label.")
             if c.get("op") and c["op"] not in ("<", "<=", ">", ">="):
                 raise QueryError("Unknown comparison.")
+            if c.get("grade") and c["grade"] not in {g["grade"] for g in cfg.rules["grades"]}:
+                raise QueryError(f"There is no grade {c['grade']} in the school's grade table.")
         for sid in q.get("students", []):
             if sid not in self.ds.students:
                 raise QueryError("Unknown student.")
@@ -80,6 +85,8 @@ class Engine:
             return False
         if sc.get("gender") and st.gender != sc["gender"]:
             return False
+        if sc.get("combo") and st.combo not in COMBO_SETS.get(sc["combo"], {sc["combo"]}):
+            return False
         return True
 
     def scope_text(self, sc, exam=None):
@@ -91,6 +98,8 @@ class Engine:
         if sc.get("group"):
             g = next((x for x in self.cfg.groups if x["id"] == sc["group"]), None)
             bits.append(f"Group {sc['group']}" + (f" ({g['name']})" if g else ""))
+        if sc.get("combo"):
+            bits.append(sc["combo"].lstrip("*"))
         if sc.get("gender"):
             bits.append({"F": "girls", "M": "boys"}.get(sc["gender"], sc["gender"]))
         if exam:
@@ -157,7 +166,8 @@ class Engine:
             rank = 1 + sum(1 for x in items if (x[0] > v if reverse else x[0] < v))
             rows.append([rank] + self.student_cols(st) + [float(round(v, 2))])
         word = "Top" if reverse else "Bottom"
-        text = f"{word} {len(cut)} by {what} - {self.scope_text(sc, sc.get('exam'))}."
+        text = f"{word} {len(cut)} by {what} - {self.scope_text(sc, sc.get('exam'))}: " + \
+            ", ".join(f"{r[1]} ({fmt_num(r6(Decimal(str(r[4]))))}%)" for r in rows[:3]) + ("..." if len(rows) > 3 else ".")
         if len(cut) > n:
             text += f" ({len(cut) - n} more included because of equal marks.)"
         if not cut:
@@ -211,10 +221,17 @@ class Engine:
             if not hit:
                 return None
             return "; ".join(r.reason for r in hit)
+        if c.get("grade"):
+            if subj:
+                hit = [r for r in cand if r.status == STATUS_OK and r.grade == c["grade"]]
+                return "; ".join(f"{cfg.subject_name(r.subject)} {_p(r.pct)}%" for r in hit) if hit else None
+            if er and er.overall is not None and cfg.grade(er.overall) == c["grade"]:
+                return f"overall {_p(er.overall)}%"
+            return None
         if c.get("op"):
             v = Decimal(str(c["value"]))
             cmp = {"<": lambda a: a < v, "<=": lambda a: a <= v, ">": lambda a: a > v, ">=": lambda a: a >= v}[c["op"]]
-            if subj:
+            if subj or c.get("any"):
                 hit = [r for r in cand if r.status == STATUS_OK and cmp(r6(r.pct))]
                 return "; ".join(f"{cfg.subject_name(r.subject)} {_p(r.pct)}%" for r in hit) if hit else None
             if er and er.overall is not None and cmp(er.overall):
@@ -222,6 +239,8 @@ class Engine:
             return None
         if c.get("result") == "not_passed":
             hit = [r for r in cand if r.passed == "No"]
+            if c.get("min") and len(hit) < int(c["min"]):
+                return None
             return "; ".join(f"{cfg.subject_name(r.subject)} ({r.label if r.status != STATUS_OK else _p(r.pct) + '%'})"
                              for r in hit) if hit else None
         if c.get("result") == "passed":
@@ -242,12 +261,15 @@ class Engine:
             s = cfg.subject_name(c["subject"]) if c.get("subject") else None
             if c.get("label"):
                 out.append(f"{c['label'].lower()} in {s}" if s else f"{c['label'].lower()} in any subject")
+            elif c.get("grade"):
+                out.append(f"grade {c['grade']}{' in ' + s if s else ' overall'}")
             elif c.get("op"):
                 word = {"<": "below", "<=": "at or below", ">": "above", ">=": "at or above"}[c["op"]]
                 val = int(c["value"]) if float(c["value"]) == int(c["value"]) else c["value"]
-                out.append(f"{s if s else 'overall'} {word} {val}%")
+                out.append(f"{s if s else ('in at least one subject' if c.get('any') else 'overall')} {word} {val}%")
             elif c.get("result") == "not_passed":
-                out.append(f"below the pass mark{' in ' + s if s else ''}")
+                out.append(f"below the pass mark{' in ' + s if s else ''}"
+                           f"{' in ' + str(c['min']) + ' or more subjects' if c.get('min') else ''}")
             elif c.get("result") == "passed":
                 out.append(f"passed{' ' + s if s else ' everything'}")
             elif c.get("status"):
@@ -257,6 +279,15 @@ class Engine:
 
     def op_list(self, q):
         hits, sc, em = self._match(q)
+        if not q.get("conds"):
+            rows = []
+            for st, _ in hits:
+                er = self.res.exam_results.get((st.sid, em.get(st.cls)))
+                rows.append(self.student_cols(st) + [float(round(er.overall, 2)) if er and er.overall is not None else None,
+                                                     er.result if er else ""])
+            return {"text": f"{len(rows)} student{'s' if len(rows) != 1 else ''} in {self.scope_text(sc, sc.get('exam'))}.",
+                    "how": "Every student in that class / section with marks." + self.exam_note(sc, em),
+                    "table": {"columns": ["Name", "Class", "Roll", "Overall %", "Result"], "rows": rows}}
         ctext = self._cond_text(q.get("conds", []))
         rows = [self.student_cols(st) + ["; ".join(d)] for st, d in hits]
         text = (f"{len(hits)} student{'s' if len(hits) != 1 else ''} {ctext} - {self.scope_text(sc, sc.get('exam'))}."
@@ -265,6 +296,15 @@ class Engine:
         return {"text": text, "how": how, "table": {"columns": ["Name", "Class", "Roll", "Why"], "rows": rows}}
 
     def op_count(self, q):
+        if q.get("by") and not q.get("conds"):
+            sc = q.get("scope", {})
+            em = self.exams_map(sc)
+            res = self._grouped(q, sc, em, q["by"], None, "count")
+            rows = res["table"]["rows"]
+            res["text"] = (f"Students by {q['by']} - {self.scope_text(sc, sc.get('exam'))}: "
+                           + ", ".join(f"{r[0]} {r[1]}" for r in rows) + f" (total {sum(r[1] for r in rows)}).")
+            res["chart"] = {"type": "bar", "labels": [r[0] for r in rows], "values": [r[1] for r in rows], "label": "Students"}
+            return res
         if not q.get("conds"):
             sc = q.get("scope", {})
             em = self.exams_map(sc)
@@ -275,7 +315,10 @@ class Engine:
         res = self.op_list(q)
         hits, sc, em = self._match(q)
         n = len(hits)
-        res["text"] = (f"{n} student{'s' if n != 1 else ''} - {self._cond_text(q.get('conds', []))} "
+        total = sum(1 for (sid, e), er in self.res.exam_results.items()
+                    if self.in_scope(self.ds.students[sid], sc) and em.get(self.ds.students[sid].cls) == e)
+        share = f" - {_p(Decimal(n) * 100 / total)}% of {total}" if total else ""
+        res["text"] = (f"{n} student{'s' if n != 1 else ''}{share} - {self._cond_text(q.get('conds', []))} "
                        f"({self.scope_text(sc, sc.get('exam'))}).")
         res["how"] = "Counted: " + res["how"]
         return res
@@ -600,10 +643,125 @@ class Engine:
         q["conds"] = [{"status": q.get("status", "AB"), "subject": q.get("subject")}]
         return self.op_list(q)
 
+    # ---- whole class / section at a glance
+    def op_summary(self, q):
+        """Students, average, pass %, topper and the weakest subject - for a class (or every class)."""
+        cfg = self.cfg
+        sc = q.get("scope", {})
+        if not sc.get("cls"):
+            em = self.exams_map(sc)
+            res = self._grouped(q, sc, em, "class", q.get("subject"), "average")
+            rows = res["table"]["rows"]
+            res["text"] = ("Results by class - " + "; ".join(f"{r[0]}: average {r[2]}%, pass {r[5]}%" for r in rows) + "."
+                           if rows else "There are no marks yet.")
+            return res
+        em = self.exams_map(sc)
+        exam = em.get(sc["cls"])
+        ers = [er for (sid, e), er in self.res.exam_results.items()
+               if self.in_scope(self.ds.students[sid], sc) and e == exam]
+        counted = [er for er in ers if er.overall is not None]
+        if not counted:
+            return {"text": "There are no marks for that.", "how": "No matching marks."}
+        avg = sum((er.overall for er in counted), Decimal(0)) / len(counted)
+        yes = sum(1 for er in ers if er.result == "Pass")
+        no = sum(1 for er in ers if er.result == "Not passed")
+        top = max(counted, key=lambda er: er.overall)
+        tops = [er for er in counted if er.overall == top.overall]
+        subj = self._grouped(q, sc, em, "subject", None, "average")["table"]["rows"]
+        hard = min(subj, key=lambda r: r[2]) if subj else None
+        easy = max(subj, key=lambda r: r[2]) if subj else None
+        text = (f"{self.scope_text(sc, exam)}: {len(counted)} students, average {_p(avg)}%, "
+                f"pass rate {_p(Decimal(yes) * 100 / (yes + no)) if yes + no else '-'}% ({no} not passed). "
+                f"Topper: {', '.join(self.ds.students[er.sid].name for er in tops)} ({_p(top.overall)}%).")
+        if hard and easy and hard[0] != easy[0]:
+            text += f" Best subject: {easy[0]} ({easy[2]}%); weakest: {hard[0]} ({hard[2]}%)."
+        by_sec = self._grouped(q, sc, em, "section", None, "average")["table"]["rows"] if not sc.get("section") else []
+        rows = by_sec if len(by_sec) > 1 else subj
+        first = "Section" if rows is by_sec else "Subject"
+        return {"text": text, "how": "Overall % of every student in the latest exam (or the exam you name), pass = "
+                                     f"{cfg.rules['pass_percent']}% in every subject." + self.exam_note(sc, em),
+                "table": {"columns": [first, "Students", "Average %", "Highest %", "Lowest %", "Pass %"], "rows": rows},
+                "chart": {"type": "bar", "labels": [r[0] for r in rows], "values": [r[2] for r in rows], "label": "Average %"}}
+
+    def op_toppers_by(self, q):
+        """The topper of every section (overall or in one subject), or of every subject."""
+        cfg = self.cfg
+        sc = q.get("scope", {})
+        em = self.exams_map(sc)
+        by = q.get("by", "section")
+        out = []
+        if by == "subject":
+            for s in views.all_subjects(self.res):
+                items = [(r6(r.pct), self.ds.students[r.sid]) for r in self.rows_for(sc, em, s) if r.status == STATUS_OK]
+                if not items:
+                    continue
+                v = max(i[0] for i in items)
+                for _, st in sorted([i for i in items if i[0] == v], key=lambda i: norm_name(i[1].name)):
+                    out.append([cfg.subject_name(s)] + self.student_cols(st) + [float(round(v, 2))])
+            what = "Subject"
+        else:
+            subj = q.get("subject")
+            for sec in self.ds.sections_for(sc["cls"]) if sc.get("cls") else views.all_sections(self.res):
+                sc2 = dict(sc, section=sec)
+                if subj:
+                    items = [(r6(r.pct), self.ds.students[r.sid]) for r in self.rows_for(sc2, em, subj) if r.status == STATUS_OK]
+                else:
+                    items = [(er.overall, self.ds.students[sid]) for (sid, e), er in self.res.exam_results.items()
+                             if self.in_scope(self.ds.students[sid], sc2) and em.get(self.ds.students[sid].cls) == e
+                             and er.overall is not None]
+                if not items:
+                    continue
+                v = max(i[0] for i in items)
+                for _, st in sorted([i for i in items if i[0] == v], key=lambda i: norm_name(i[1].name)):
+                    out.append([f"Section {sec}"] + self.student_cols(st) + [float(round(v, 2))])
+            what = "Section"
+        pct = (cfg.subject_name(q["subject"]) + " %") if q.get("subject") and by == "section" else "%"
+        return {"text": f"Toppers of every {what.lower()} - {self.scope_text(sc, sc.get('exam'))}: "
+                        + "; ".join(f"{r[0]}: {r[1]} ({r[4]}%)" for r in out[:12]) + ".",
+                "how": f"Took the highest {pct} in each {what.lower()} (equal marks are all shown)." + self.exam_note(sc, em),
+                "table": {"columns": [what, "Name", "Class", "Roll", pct], "rows": out}}
+
+    def op_teacher(self, q):
+        """Teacher results: one teacher's card, or every teacher of a subject side by side."""
+        from .teachers import analyse
+        if not self.teachers:
+            return {"text": "No teachers have been added yet. Add them on the Teachers page (name, subject and classes) "
+                            "or upload a file with a 'Teachers' sheet.", "how": "-"}
+        pick = [t for t in self.teachers if t["id"] in (q.get("teachers") or [])]
+        if not pick and q.get("subject"):
+            pick = [t for t in self.teachers if t["subject"] == q["subject"]]
+        an = analyse(self.res, pick or self.teachers)
+        if pick and len(pick) == 1:
+            c = an["cards"][0]
+            rows = [[x["label"], e["name"], e["n"], float(round(e["avg"], 2)) if e["avg"] is not None else None,
+                     float(round(e["pass_pct"], 1)) if e["pass_pct"] is not None else None,
+                     float(round(e["vs_own"], 2)) if e["vs_own"] is not None else None]
+                    for x in c["sections"] if not x["missing"] for e in x["by_exam"]]
+            return {"text": f"{c['name']} - {c['subject_name']} ({', '.join(c['classes'])}): " + " ".join(c["notes"]),
+                    "how": "From the subject results of the students in the teacher's classes. 'vs own avg' = each student's "
+                           "mark in the subject minus their own average over all subjects (the fair check).",
+                    "table": {"columns": ["Class", "Exam", "Students", "Average %", "Pass %", "vs own avg"], "rows": rows}}
+        rows = []
+        for block in an["comparison"]:
+            for r in block["rows"]:
+                rows.append([block["name"], r["name"], r["classes"], float(round(r["avg"], 2)) if r["avg"] is not None else None,
+                             float(round(r["pass_pct"], 1)) if r["pass_pct"] is not None else None,
+                             float(round(r["vs_own"], 2)) if r["vs_own"] is not None else None])
+        best = max((r for r in rows if r[5] is not None), key=lambda r: r[5], default=None)
+        return {"text": f"{len(rows)} teacher{'s' if len(rows) != 1 else ''} compared (latest exam of each class)."
+                        + (f" Biggest lift over the students' own average: {best[1]} ({best[0]}, {'+' if best[5] >= 0 else ''}{best[5]})."
+                           if best else ""),
+                "how": "Average and pass % of the students each teacher teaches, in that subject. 'vs own avg' is the fair "
+                       "check - it does not depend on how strong the class is.",
+                "table": {"columns": ["Subject", "Teacher", "Classes", "Average %", "Pass %", "vs own avg"], "rows": rows},
+                "chart": {"type": "bar", "labels": [r[1] for r in rows], "values": [r[3] for r in rows], "label": "Average %"}}
+
     def op_help(self, q):
-        return {"text": "Ask about the uploaded marks in your own words. For example: \"Top 5 in Class XI\", "
-                        "\"Who is weak in Maths but strong in Physics?\", \"Which subject is hardest?\", "
-                        "\"Compare section A and B\", \"Show Aarav's weakest subjects\", \"How many failed in Chemistry?\".",
+        return {"text": "Ask about the uploaded marks in your own words. For example: 'Top 5 in Class 9', "
+                        "'Result of class 6', 'Who is weak in Maths but strong in Science in class 9?', "
+                        "'Which subject is hardest in class 10?', 'Section toppers of class 11', 'Compare 6A and 6B', "
+                        "'Show Aarav's weakest subjects', 'How many failed in Chemistry?', "
+                        "'How are the Physics teachers doing?'.",
                 "how": "Questions are matched to fixed, checked operations - nothing is guessed."}
 
     # ---- board

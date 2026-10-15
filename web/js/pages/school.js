@@ -6,6 +6,7 @@ import { $, $$, esc, fmt, fmtMark, toast, modal, chart, countUp, download, XLSX,
 import { readPdf, readImage } from "../files.js";
 import * as ai from "../ai.js";
 import { printCards } from "../report.js";
+import { qmark } from "../explain.js";
 
 const rerender = () => window.__render();
 const STEPS = ["Upload", "Check", "Review", "Download"];
@@ -15,6 +16,9 @@ const ROLES = [["ignore", "Not used"], ["name", "Student name"], ["roll", "Roll 
   ["choice", "Subject choice"], ["mark", "Marks"], ["file_total", "Total (to double-check)"], ["sno", "Serial no"],
   ["row_subject", "Subject name (per row)"], ["row_exam", "Exam name (per row)"]];
 let busy = null;      // text while working
+const PARTS = [["theory", "Theory / written"], ["practical", "Practical / internal (total)"], ["total", "Total (out of 100)"],
+  ["pt5", "Internal: PT part"], ["portfolio", "Internal: portfolio"], ["project", "Internal: project"], ["notebook", "Notebook"],
+  ["viva", "Practical: viva"], ["file", "Practical: file"], ["ptest", "Practical: test"]];
 
 export function html() {
   if (!S.engineReady) return loadingHtml();
@@ -62,7 +66,7 @@ function upload() {
       <label class="drop" id="drop">
         <input type="file" id="file-in" multiple accept=".xlsx,.xlsm,.xls,.csv,.txt,.tsv,.pdf,.png,.jpg,.jpeg,.webp">
         <div class="drop-icon"><svg viewBox="0 0 24 24"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg></div>
-        <h3>Drop marks files here</h3>
+        <h3>Drop marks files here ${qmark("upload")}</h3>
         <div class="muted">or click to choose · you can add several files (one per exam, one per class…)</div>
         <div class="formats"><span>EXCEL</span><span>XLS</span><span>CSV</span><span>CBSE TXT</span><span>PDF</span><span>SCAN / PHOTO</span></div>
       </label>
@@ -74,7 +78,7 @@ function upload() {
     <div class="stack">
       <div class="card lift">
         <h3>Try it now</h3>
-        <p class="muted small">Made-up students (no real names) in the school's template, all four exams, both classes.</p>
+        <p class="muted small">Made-up students (no real names) in the school's template: Classes VI, IX, X, XI and XII, every exam, with internal marks in VI and IX and marks only in X.</p>
         <div class="row"><button class="btn btn-soft" id="sample">Sample data</button><button class="btn btn-ghost" id="sample-bad">Sample with mistakes</button></div>
       </div>
       <div class="card lift">
@@ -190,7 +194,7 @@ function check() {
   const issues = S.summary ? issuesPanel() : "";
   return `<div class="stack">${pendHtml}
     ${S.summary ? issues : ""}
-    <div class="card"><div class="card-head"><h3>What each column means</h3>
+    <div class="card"><div class="card-head"><h3>What each column means ${qmark("check")}</h3>
       <span class="muted small">Amber = please confirm. Your choices are remembered for files with the same layout.</span></div>
       ${cards.join("")}</div>
     <div class="row between">
@@ -237,7 +241,7 @@ function colBox(key, c, exams, subjects) {
   const markSel = c.role === "mark" ? `
     <select class="sel-sm" data-col="${esc(key)}|${c.col}" data-k="subject">${opt(subjects, c.subject, "Which subject?")}</select>
     <div class="row" style="gap:6px;margin-top:5px">
-      <select class="sel-sm" style="flex:1" data-col="${esc(key)}|${c.col}" data-k="component">${opt([["theory", "Theory"], ["practical", "Practical"], ["total", "Total (out of 100)"]], c.component || "theory")}</select>
+      <select class="sel-sm" style="flex:1" data-col="${esc(key)}|${c.col}" data-k="component">${opt(PARTS, c.component || "theory")}</select>
       <select class="sel-sm" style="flex:1" data-col="${esc(key)}|${c.col}" data-k="exam">${opt(exams, c.exam, "Sheet's exam")}</select></div>` : "";
   return `<div class="map-col ${c.sure ? "" : "unsure"} ${c.role === "ignore" ? "ign" : ""}" data-colbox="${esc(key)}|${c.col}">
     <div class="h" title="${esc(c.header)}">${esc(c.header || "(no heading)")}</div>
@@ -328,9 +332,11 @@ function review() {
   const tabs = [["overview", "Overview"], ["students", "Students"], ["subjects", "Subjects"], ["progress", "Progress"], ["card", "Report card"]];
   return `<div class="card" style="margin-bottom:18px"><div class="row between">
       <div class="row">
-        <div class="seg">${s.classes.map((x) => `<button class="${x.cls === S.view.cls ? "on" : ""}" data-cls="${x.cls}">${esc(x.label)}</button>`).join("")}</div>
+        ${s.classes.length > 4 ? `<select class="sel-sm" id="v-cls" style="width:auto;font-weight:600">${s.classes.map((x) => `<option value="${x.cls}" ${x.cls === S.view.cls ? "selected" : ""}>${esc(x.label)}</option>`).join("")}</select>`
+          : `<div class="seg">${s.classes.map((x) => `<button class="${x.cls === S.view.cls ? "on" : ""}" data-cls="${x.cls}">${esc(x.label)}</button>`).join("")}</div>`}
         <select class="sel-sm" id="v-exam" style="width:auto">${c.exams.map((e) => `<option value="${e.code}" ${e.code === S.view.exam ? "selected" : ""}>${esc(e.name)}</option>`).join("")}</select>
         <select class="sel-sm" id="v-sec" style="width:auto"><option value="All">All sections</option>${c.sections.map((x) => `<option ${x === S.view.section ? "selected" : ""}>${esc(x)}</option>`).join("")}</select>
+        ${(c.combos || []).length > 1 && S.tab === "students" ? `<select class="sel-sm" id="v-combo" style="width:auto"><option value="">All streams</option>${c.combos.map((x) => `<option ${x === S.view.combo ? "selected" : ""}>${esc(x)}</option>`).join("")}</select>` : ""}
       </div>
       <button class="btn btn-primary" data-go="4">Download →</button></div></div>
     <div class="tabs">${tabs.map(([k, l]) => `<button class="${S.tab === k ? "on" : ""}" data-tab="${k}">${l}</button>`).join("")}</div>
@@ -356,7 +362,7 @@ async function loadTab() {
       chart($("#c-sec"), "bar", d.by_section.map((x) => "Section " + x[0]), [{ data: d.by_section.map((x) => x[1]), backgroundColor: PALETTE(), borderRadius: 6 }],
         { indexAxis: "y", x: { max: 100 }, y: { grid: { display: false } } });
     } else if (S.tab === "students") {
-      const m = await engine.call("matrix", cls, exam, section);
+      const m = await engine.call("matrix", cls, exam, section, S.view.combo || "");
       body.innerHTML = studentsHtml(m);
       const search = $("#stu-search");
       search.addEventListener("input", () => {
@@ -391,41 +397,43 @@ async function loadTab() {
 function overviewHtml(d) {
   const k = (v, l, places = 1, s = "") => `<div class="kpi"><div class="v" ${v !== null && v !== undefined ? `data-count="${v}" data-places="${places}"` : ""}>${v === null || v === undefined ? "–" : fmt(0, places)}</div><div class="l">${l}</div>${s ? `<div class="s">${s}</div>` : ""}</div>`;
   return `<div class="grid g5">
-      ${k(d.students, "Students", 0)}${k(d.average, "Class average %")}${k(d.highest, "Highest %")}${k(d.pass_rate, "Pass rate %", 1, `${d.passed} passed · ${d.not_passed} not`)}
+      ${k(d.students, "Students", 0)}${k(d.average, "Class average %")}${k(d.highest, "Highest %")}${k(d.pass_rate, "Pass rate % " + qmark("pass"), 1, `${d.passed} passed · ${d.not_passed} not`)}
       <div class="kpi"><div class="v" style="font-size:1.25rem;padding-top:8px">${esc(d.topper || "–")}</div><div class="l">Top scorer</div></div>
     </div>
     <div class="grid g2" style="margin-top:18px">
-      <div class="card"><h3>Average % by subject</h3><div class="chart-box"><canvas id="c-sub"></canvas></div></div>
-      <div class="card"><h3>How subjects are going</h3><div class="chart-box"><canvas id="c-lab"></canvas></div>
+      <div class="card"><h3>Average % by subject ${qmark("dashboard")}</h3><div class="chart-box"><canvas id="c-sub"></canvas></div></div>
+      <div class="card"><h3>How subjects are going ${qmark("labels")}</h3><div class="chart-box"><canvas id="c-lab"></canvas></div>
         <p class="tiny muted" style="margin:8px 0 0">Compared with each student's own average and the class average (rules in Settings).</p></div>
-      <div class="card"><h3>Students in each overall % range</h3><div class="chart-box"><canvas id="c-dist"></canvas></div></div>
-      <div class="card"><h3>Average overall % by section</h3><div class="chart-box"><canvas id="c-sec"></canvas></div></div>
+      <div class="card"><h3>Students in each overall % range ${qmark("percent")}</h3><div class="chart-box"><canvas id="c-dist"></canvas></div></div>
+      <div class="card"><h3>Average overall % by section ${qmark("classes")}</h3><div class="chart-box"><canvas id="c-sec"></canvas></div></div>
     </div>`;
 }
 
 function studentsHtml(m) {
   const head = ["#", "Name", "Sec", ...m.subjects.map((s) => s.short), "Overall %", "Result", "Rank"];
+  const titles = ["", "", "", ...m.subjects.map((s) => s.name), "", "", ""];
   const rows = m.rows.map((r, i) => {
     const cells = r.cells.map((c) => {
       if (!c) return `<td class="muted center">·</td>`;
-      if (c.pct === null || c.pct === undefined) return `<td class="center" title="${esc(c.reason)}"><span class="badge b-leave">${esc(c.status)}</span></td>`;
+      const tag = c.slot_subject ? ` <span class="slot-tag">${esc(c.slot_subject)}</span>` : "";
+      if (c.pct === null || c.pct === undefined) return `<td class="center" title="${esc(c.reason)}"><span class="badge b-leave">${esc(c.status)}</span>${tag}</td>`;
       const col = { "Strong": "var(--green)", "Weak": "var(--amber)", "Needs attention": "var(--red)" }[c.label] || "inherit";
-      return `<td class="num" title="${esc(c.reason)}" style="color:${col};font-weight:${col === "inherit" ? 400 : 700}">${fmt(c.pct)}</td>`;
+      return `<td class="num" title="${esc(c.reason)}" style="color:${col};font-weight:${col === "inherit" ? 400 : 700}">${fmt(c.pct)}${tag}</td>`;
     }).join("");
     return `<tr data-n="${esc(r.name.toLowerCase())}" data-sid="${r.sid}" style="cursor:pointer"><td class="muted">${esc(r.roll)}</td><td><b>${esc(r.name)}</b></td><td>${esc(r.section)}</td>${cells}
       <td>${pctCell(r.overall)}</td><td>${r.result === "Not passed" ? `<span class="badge b-att">Not passed</span>` : `<span class="badge b-ok">${esc(r.result || "–")}</span>`}</td><td class="num">${r.rank ?? "–"}</td></tr>`;
   }).join("");
-  return `<div class="card"><div class="card-head"><h3>Students (${m.rows.length})</h3>
+  return `<div class="card"><div class="card-head"><h3>Students (${m.rows.length}) ${qmark("students")}</h3>
       <input type="search" id="stu-search" placeholder="Search a name…" style="max-width:260px"></div>
-    <div class="table-wrap" style="max-height:620px"><table class="t" id="stu-table"><thead><tr>${head.map((h) => `<th>${esc(h)}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="table-wrap" style="max-height:620px"><table class="t" id="stu-table"><thead><tr>${head.map((h, i) => `<th title="${esc(titles[i])}">${esc(h)}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div>
     <div class="t-scroll-note">Subject columns show % (green = strong, amber = weak, red = needs attention). Hover for the reason. Click a student for the report card.</div></div>`;
 }
 
 function subjectsHtml(d, c, subj) {
   const rows = d.rows.filter((r) => r.count).map((r) => [r.name, r.count, { html: pctCell(r.avg) }, r.max, r.min, r.pass_pct, r.absent,
-    r.avg_th, d.practical.includes(r.subject) ? r.avg_pr : "–"]);
+    r.avg_th, r.avg_pr ?? "–"]);
   return `<div class="grid g2">
-    <div class="card span2"><h3>Subjects</h3>${table(["Subject", "Students", "Average %", "Highest %", "Lowest %", "Pass %", "Absent", "Avg theory", "Avg practical"], rows, { numeric: [1, 3, 4, 5, 6, 7, 8] })}</div>
+    <div class="card span2"><h3>Subjects ${qmark("subjects")}</h3>${table(["Subject", "Students", "Average %", "Highest %", "Lowest %", "Pass %", "Absent", "Avg written", "Avg practical / internal"], rows, { numeric: [1, 3, 4, 5, 6, 7, 8] })}</div>
     <div class="card"><h3>Average and pass % by subject</h3><div class="chart-box"><canvas id="c-savg"></canvas></div></div>
     <div class="card"><h3>Theory + practical (average marks)</h3><div class="chart-box"><canvas id="c-thpr"></canvas></div></div>
     <div class="card span2"><div class="card-head"><h3>Across exams</h3>
@@ -442,7 +450,7 @@ function progressHtml(d) {
     { html: r.latest_change === null ? "–" : `<b style="color:${r.latest_change >= 0 ? "var(--green)" : "var(--red)"}">${r.latest_change >= 0 ? "▲" : "▼"} ${fmt(Math.abs(r.latest_change))}</b>` },
     { html: r.watch ? `<span class="badge b-att">${r.dropped_twice ? "Dropped twice" : "Not passed"}</span>` : "" }]);
   return `<div class="grid g2">
-    <div class="card"><h3>📈 Most improved</h3>${improved.length ? `<ol>${improved.map((r) => `<li><b>${esc(r.name)}</b> (${esc(r.section)}) <span style="color:var(--green)">+${fmt(r.latest_change)}</span></li>`).join("")}</ol>` : `<p class="muted">Needs at least two exams.</p>`}</div>
+    <div class="card"><h3>📈 Most improved ${qmark("progress")}</h3>${improved.length ? `<ol>${improved.map((r) => `<li><b>${esc(r.name)}</b> (${esc(r.section)}) <span style="color:var(--green)">+${fmt(r.latest_change)}</span></li>`).join("")}</ol>` : `<p class="muted">Needs at least two exams.</p>`}</div>
     <div class="card"><h3>👀 Watch list (${watch.length})</h3><p class="tiny muted">Dropped ${S.settings.rules.drop_alert_gap}+ points in two exams in a row, or not passed in the latest exam.</p>
       ${watch.length ? `<ul>${watch.slice(0, 12).map((r) => `<li><b>${esc(r.name)}</b> (${esc(r.section)}) - ${r.dropped_twice ? "dropped twice in a row" : "not passed in the latest exam"}</li>`).join("")}</ul>` : `<p class="muted">Nobody - good news.</p>`}</div>
     <div class="card span2"><h3>Overall % in each exam</h3>${table(head, rows, { numeric: ex.map((_, i) => i + 2) })}</div></div>`;
@@ -479,13 +487,15 @@ function cardHtml(c) {
   const st = c.student;
   const info = [["Name", st.name], ["Class", st.cls + (st.section ? "-" + st.section : "")], ["Roll no", st.roll], ["Admission no", st.adm_no],
     ["Father's name", st.father], ["Mother's name", st.mother], ["Group", st.group], ["Exam", c.exam_name]];
-  const rows = c.rows.map((r) => [r.name, fmtMark(r.theory), r.practical === null ? "" : fmtMark(r.practical), r.obtained === null ? "–" : fmtMark(r.obtained),
+  const rows = c.rows.map((r) => [r.name, fmtMark(r.theory),
+    r.practical === null ? "" : (r.parts && r.parts.length ? { html: `<span title="${esc(r.parts.map((p) => p.label + ": " + (p.value === null ? "–" : fmtMark(p.value)) + "/" + fmtMark(p.max)).join(" · "))}" style="border-bottom:1px dotted var(--muted)">${fmtMark(r.practical)}</span>` } : fmtMark(r.practical)), r.obtained === null ? "–" : fmtMark(r.obtained),
     fmtMark(r.max), r.pct, r.class_avg, r.grade || "–", { html: labelBadge(r.gentle) }]);
   return `<div class="rc"><div class="rc-top"><span class="brand-badge"><img src="assets/img/rdps-logo.png" alt=""></span>
-      <div><h2>Report Card · ${esc(c.exam_name)}</h2><p>${esc(S.settings.rules.school_name)}, ${esc(S.settings.rules.school_place)} · ${esc(S.settings.rules.academic_year)}</p></div></div>
+      <div><h2>Report Card · ${esc(c.exam_name)} ${qmark("report-card")}</h2><p>${esc(S.settings.rules.school_name)}, ${esc(S.settings.rules.school_place)} · ${esc(S.settings.rules.academic_year)}</p></div></div>
     <div class="rc-info">${info.map(([k, v]) => `<div><span>${k}</span><b>${esc(v || "–")}</b></div>`).join("")}</div>
     <div class="rc-body">
-      ${table(["Subject", "Theory", "Practical", "Total", "Max", "%", "Class avg %", "Grade", "Status"], rows, { numeric: [1, 2, 3, 4, 5, 6] })}
+      ${table(["Subject", c.th_head || "Theory", c.pr_head || "Practical", "Total", "Max", "%", "Class avg %", "Grade", "Status"], rows, { numeric: [1, 2, 3, 4, 5, 6] })}
+      ${c.rows.some((r) => r.written_only) ? `<p class="tiny muted" style="margin:6px 0 0">No internal marks were given for some subjects - they are worked out of the written paper alone.</p>` : ""}
       <div class="rc-overall">
         <div><b>${fmtMark(c.obtained) || "–"}</b><span>Total</span></div><div><b>${fmtMark(c.max) || "–"}</b><span>Out of</span></div>
         <div><b>${fmt(c.overall, 2)}</b><span>Overall %</span></div><div><b style="font-size:1rem;padding:5px 0">${esc(c.result || "–")}</b><span>Result</span></div>
@@ -505,8 +515,8 @@ function downloads() {
   const c = s.classes.find((x) => x.cls === S.view.cls) || s.classes[0];
   const recipe = s.recipe || { items: [] };
   return `<div class="grid g2">
-    <div class="card"><h3>📊 Excel workbook</h3>
-      <p class="muted small">Dashboard, report cards, subject and marks analysis, progress, marks matrix, validation report, settings and the untouched source data - with real Excel charts and formulas.</p>
+    <div class="card"><h3>📊 Excel workbook ${qmark("excel")}</h3>
+      <p class="muted small">Dashboard, report cards, subject and marks analysis, progress, teachers, one marks sheet per class (and per stream in XI-XII), internal marks, validation report, settings and the untouched source data - with real Excel charts and formulas.</p>
       <label class="toggle" style="margin:6px 0 12px"><input type="checkbox" id="macros" ${prefs.macros ? "checked" : ""}><i></i>Include buttons (macros) - <span class="muted small">recalculate, reset, save report cards as PDF</span></label>
       <div class="row"><button class="btn btn-primary btn-lg" id="dl-wb">Download Excel</button><span id="dl-state" class="muted small"></span></div>
       <div class="note" style="margin-top:14px">💡 <b>First time opening a file with buttons?</b> Windows blocks macros in downloaded files. Right-click the file → <b>Properties</b> → tick <b>Unblock</b> → OK. The workbook also works without the buttons.</div>
@@ -518,11 +528,11 @@ function downloads() {
         <select class="sel-sm" id="pc-sec" style="width:auto"><option value="All">All sections</option>${c.sections.map((x) => `<option ${x === S.view.section ? "selected" : ""}>${esc(x)}</option>`).join("")}</select>
         <button class="btn btn-navy" id="pc-go">Make ${esc(c.label)} report cards</button></div>
     </div>
-    <div class="card span2"><div class="card-head"><h3>✍️ Change the Excel with words</h3><span class="muted small">Previewed first · undo any time · marks are never changed</span></div>
+    <div class="card span2"><div class="card-head"><h3>✍️ Change the Excel with words ${qmark("commands")}</h3><span class="muted small">Previewed first · undo any time · marks are never changed</span></div>
       <div class="chat-input"><input type="text" id="cmd" placeholder="e.g. add a chart of Physics averages by section" autocomplete="off">
         <button class="btn btn-primary" id="cmd-go">Preview</button></div>
       <div class="chips" style="margin-top:10px">${["Add a chart of Physics averages by section", "Highlight students below 40% in red", "Add a sheet with the top 10 in class " + c.cls,
-        "Change the weak threshold to 8", "Add a pie chart of pass percentage by group", "Hide the Source Data sheet"].map((t) => `<button class="chip" data-cmd="${esc(t)}">${esc(t)}</button>`).join("")}</div>
+        "Change the weak threshold to 8", "Add a pie chart of pass percentage by section", "Hide the Source Data sheet"].map((t) => `<button class="chip" data-cmd="${esc(t)}">${esc(t)}</button>`).join("")}</div>
       <div id="cmd-out" style="margin-top:12px"></div>
       ${recipe.items.length ? `<div class="divider"></div><h3>Changes in this workbook (${recipe.items.length})</h3>
         <div class="stack">${recipe.items.map((it, i) => `<div class="file-row"><span class="ficon">${{ chart: "📈", highlight: "🖍", query_sheet: "📄", hide_sheet: "🙈" }[it.type] || "•"}</span>
@@ -650,7 +660,7 @@ async function onClick(e) {
       S.files = await engine.call("set_column", src, sheet, +col, JSON.stringify(sug));
       rerender(); return;
     }
-    if (d.cls) { S.view.cls = d.cls; pickView(); rerender(); return; }
+    if (d.cls) { S.view.cls = d.cls; S.view.combo = ""; pickView(); rerender(); return; }
     if (d.tab) { S.tab = d.tab; rerender(); return; }
     if (t.matches("tr[data-sid]")) { S.rcStudent = d.sid; S.tab = "card"; rerender(); return; }
     if (t.id === "dl-wb") return downloadWorkbook(t);
@@ -706,6 +716,8 @@ async function onChange(e) {
       S.files = await engine.call("set_column", src, sheet, +col, JSON.stringify(payload));
       S.summary = null; rerender(); return;
     }
+    if (t.id === "v-cls") { S.view.cls = t.value; S.view.combo = ""; pickView(); rerender(); return; }
+    if (t.id === "v-combo") { S.view.combo = t.value; rerender(); return; }
     if (t.id === "v-exam") { S.view.exam = t.value; rerender(); return; }
     if (t.id === "v-sec") { S.view.section = t.value; rerender(); return; }
     if (t.id === "trend-sub") { S.trendSubject = t.value; loadTab(); return; }

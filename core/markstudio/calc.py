@@ -19,7 +19,8 @@ class Row:
     """One subject of one student in one exam (a row of the 'Subject Results' sheet)."""
     __slots__ = ("sid", "exam", "subject", "th", "th_kind", "th_raw", "th_max", "pr", "pr_kind", "pr_raw", "pr_max",
                  "is_total", "status", "obtained", "max", "pct", "th_pct", "pr_pct", "passed", "own_avg", "class_avg",
-                 "vs_own", "vs_class", "label", "reason", "grade", "marks")
+                 "vs_own", "vs_class", "label", "reason", "grade", "marks",
+                 "pr_code", "parts", "pr_label", "written_only", "pt_from")
 
     def __init__(self, **kw):
         for k in self.__slots__:
@@ -71,6 +72,43 @@ def status_of(th_kind, th_code, pr_kind, pr_code, pr_max, cfg):
     return "INCOMPLETE"
 
 
+def derived_pt(pt_parts, cfg, cls, subject, pt_exam, mx):
+    """The 'PT' part of the internal marks, worked out from the periodic test:
+    PT marks / PT maximum x part maximum (e.g. 17/20 x 5 = 4.25). Absent or on leave in the PT = 0.
+    No PT record at all = blank (the internal marks stay incomplete). -> (kind, value, code)"""
+    if not pt_exam or not pt_parts:
+        return "blank", None, ""
+    m = pt_parts.get("theory") or pt_parts.get("total")
+    if m is None:
+        return "blank", None, ""
+    ptmax = cfg.subject_max(cls, subject, pt_exam) if m.component == "total" else cfg.components(cls, subject, pt_exam).get("theory")
+    if not ptmax:
+        return "blank", None, ""
+    if m.kind == "number":
+        return "number", m.value / ptmax * mx, ""
+    if m.kind in ("blank", "leave"):
+        return "number", Decimal(0), ""
+    return "invalid", None, ""
+
+
+def combine(items):
+    """Parts of the internal / practical marks -> one value. Same order of checks as the Excel formula:
+    all numbers -> their sum; every typed part blank -> blank; else the first leave code; else a wrong
+    entry -> invalid; else some parts are missing -> partial (Incomplete).
+    items: [(source 'entered'|'derived', kind, value, code)] -> (kind, value, code)"""
+    if all(i[1] == "number" for i in items):
+        return "number", sum((i[2] for i in items), Decimal(0)), ""
+    entered = [i for i in items if i[0] == "entered"]
+    if all(i[1] == "blank" for i in entered):
+        return "blank", None, ""
+    for i in items:
+        if i[1] == "leave":
+            return "leave", None, i[3]
+    if any(i[1] == "invalid" for i in items):
+        return "invalid", None, ""
+    return "partial", None, ""
+
+
 def status_label(status, cfg):
     if status == "INVALID":
         return "Check marks"
@@ -100,23 +138,57 @@ def compute(ds):
 
     for k in sorted(groups, key=key):
         sid, exam, subject = k
+        cls = ds.students[sid].cls
         parts = groups[k]
-        comps = cfg.components(subject, exam)
+        comps = cfg.components(cls, subject, exam)
+        subs = cfg.subparts(cls, subject, exam)
+        used = []
+        written_only = False
+        part_vals = {}
+        pt_from = None
         if "total" in parts:
-            th_m, pr_m = parts["total"], None
-            th_max, pr_max, is_total = cfg.subject_max(subject, exam), Decimal(0), True
+            th_m = parts["total"]
+            th_max, pr_max, is_total = cfg.subject_max(cls, subject, exam), Decimal(0), True
+            pr_kind, pr_val, pr_code, pr_raw = "blank", None, "", ""
+            used = [th_m]
         else:
-            th_m, pr_m = parts.get("theory"), parts.get("practical")
+            th_m = parts.get("theory")
             th_max, pr_max, is_total = comps.get("theory", Decimal(0)), comps.get("practical", Decimal(0)), False
+            used = [th_m] if th_m else []
+            if "practical" in parts:
+                pr_m = parts["practical"]
+                used.append(pr_m)
+                pr_kind, pr_val, pr_code, pr_raw = pr_m.kind, pr_m.value if pr_m.kind == "number" else None, pr_m.code, pr_m.raw
+            elif subs and any(kk in parts for kk, _ in subs):
+                items = []
+                for kk, mx in subs:
+                    if kk == "i_pt" and kk not in parts:
+                        pt_from = cfg.pt_source(exam)
+                        items.append(("derived",) + derived_pt(groups.get((sid, pt_from, subject)), cfg, cls, subject, pt_from, mx))
+                        part_vals[kk] = (items[-1][2], mx)
+                        continue
+                    m = parts.get(kk)
+                    if m is not None:
+                        used.append(m)
+                    kind = m.kind if m else "blank"
+                    val = m.value if m and m.kind == "number" else None
+                    items.append(("entered", kind, val, m.code if m else ""))
+                    part_vals[kk] = (val, mx)
+                pr_kind, pr_val, pr_code = combine(items)
+                pr_raw = {"number": "", "blank": "", "leave": pr_code, "invalid": "⚠", "partial": "INC"}[pr_kind]
+            elif pr_max and cfg.second_optional(cls, subject, exam):
+                written_only, pr_max = True, Decimal(0)
+                pr_kind, pr_val, pr_code, pr_raw = "blank", None, "", ""
+            else:
+                pr_kind, pr_val, pr_code, pr_raw = "blank", None, "", ""
         th_kind = th_m.kind if th_m else "blank"
-        pr_kind = pr_m.kind if pr_m else "blank"
         row = Row(sid=sid, exam=exam, subject=subject,
                   th=th_m.value if th_m and th_m.kind == "number" else None, th_kind=th_kind,
                   th_raw=th_m.raw if th_m else "", th_max=th_max,
-                  pr=pr_m.value if pr_m and pr_m.kind == "number" else None, pr_kind=pr_kind,
-                  pr_raw=pr_m.raw if pr_m else "", pr_max=pr_max, is_total=is_total,
-                  marks=[x for x in (th_m, pr_m) if x])
-        row.status = status_of(th_kind, th_m.code if th_m else "", pr_kind, pr_m.code if pr_m else "", pr_max, cfg)
+                  pr=pr_val, pr_kind=pr_kind, pr_raw=pr_raw, pr_code=pr_code, pr_max=pr_max, is_total=is_total,
+                  marks=used, parts=part_vals, written_only=written_only, pt_from=pt_from,
+                  pr_label=cfg.second_label(cls, subject, exam) if pr_max else "")
+        row.status = status_of(th_kind, th_m.code if th_m else "", pr_kind, pr_code, pr_max, cfg)
         row.max = th_max + pr_max
         if row.status == STATUS_OK:
             row.obtained = row.th + (row.pr if pr_max else Decimal(0))
@@ -188,7 +260,10 @@ def compute(ds):
             continue
         r.vs_own = r.pct - r.own_avg
         r.vs_class = r.pct - r.class_avg
-        if r.passed == "No" or r6(r.vs_class) <= -att:
+        # a student below the pass mark somewhere: only the subjects actually below the pass mark
+        # are "Needs attention" (otherwise a weak student would get it in every subject)
+        any_fail = res.exam_results[(r.sid, r.exam)].result == "Not passed"
+        if r.passed == "No" or (not any_fail and r6(r.vs_class) <= -att):
             r.label = "Needs attention"
         elif r6(r.vs_own) >= strong:
             r.label = "Strong"
@@ -245,13 +320,15 @@ def remarks(res, sid, exam):
         return []
     out = []
     ok = [r for r in er.rows if r.status == STATUS_OK]
+    best = None
     if ok:
         best = max(ok, key=lambda r: (r6(r.pct), -cfg.subject_order.index(r.subject) if r.subject in cfg.subject_order else 0))
         out.append(f"Best subject: {cfg.subject_name(best.subject)} ({fmt_num(r6(best.pct))}%).")
     good = [cfg.subject_name(r.subject) for r in er.rows if r.label == "Strong"]
     if good:
         out.append("Doing well in: " + ", ".join(good) + ".")
-    focus = [r for r in er.rows if r.label in ("Weak", "Needs attention")]
+    # the best subject is never also a focus area (unless it is below the pass mark)
+    focus = [r for r in er.rows if r.label in ("Weak", "Needs attention") and (r is not best or r.passed == "No")]
     for r in focus:
         bits = []
         if r.passed == "No":

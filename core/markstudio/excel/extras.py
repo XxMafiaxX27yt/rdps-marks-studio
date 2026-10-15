@@ -193,7 +193,7 @@ def write_extras(sw):
             sr.conditional_format(1, 0, max(1, sw.n_sr), 26, {"type": "formula", "criteria": "=AND(" + ",".join(conds) + ")",
                                                               "format": fmt})
             if not it.get("subject"):
-                mx = sw.sheets["Marks Matrix"]
+                mx = sw.sheets["Overview"]
                 c = sw.mx_cols["overall"]
                 col = rc(MX_FIRST, c, False, True).rstrip("0123456789")
                 mconds = [f"ISNUMBER({col}{MX_FIRST + 1})", f"ROUND({col}{MX_FIRST + 1},6){op}{val}"]

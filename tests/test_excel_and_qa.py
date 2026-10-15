@@ -54,8 +54,9 @@ def test_workbook_opens_and_has_sheets(data):
     ds, res = data
     b = write_workbook(ds, res)
     wb = openpyxl.load_workbook(io.BytesIO(b))
-    for name in ["Dashboard", "Report Card", "Subject Analysis", "Marks Analysis", "Progress", "Marks Matrix",
-                 "Subject Results", "Student Master", "Validation Report", "Config", "Source Data"]:
+    for name in ["Dashboard", "Report Card", "Subject Analysis", "Marks Analysis", "Progress", "Overview",
+                 "Marks VI", "Marks XI PCM", "Internals VI", "Subject Results", "Student Master", "Validation Report",
+                 "Config", "Source Data"]:
         assert name in wb.sheetnames
     assert wb["_meta"].sheet_state == "hidden"
 
@@ -114,11 +115,11 @@ def test_reupload_workbook_with_excel_edit(data):
     api.S.ds, api.S.res = ds, res
     b = write_workbook(ds, res)
     wb = openpyxl.load_workbook(io.BytesIO(b))
-    ws = wb["Marks Matrix"]
+    ws = wb["Marks XI PCM"]
     # find first numeric mark cell and change it
     target = None
     for row in ws.iter_rows(min_row=5, max_row=6):
-        for c in row[8:]:
+        for c in row[6:]:
             if isinstance(c.value, (int, float)):
                 target = c
                 break
@@ -187,7 +188,7 @@ def test_unsupported_question_says_so(data):
 
 def test_ambiguous_question_asks_back(data):
     parsed, ans = ask(data, "top 10 students")
-    assert parsed.get("clarify") and {o["force"]["cls"] for o in parsed["options"]} == {"XI", "XII"}
+    assert parsed.get("clarify") and {o["force"]["cls"] for o in parsed["options"]} == {"VI", "IX", "X", "XI", "XII"}
     parsed2, ans2 = ask(data, "top 10 students", parsed["options"][0]["force"])
     assert ans2 and len(ans2["table"]["rows"]) >= 10
 

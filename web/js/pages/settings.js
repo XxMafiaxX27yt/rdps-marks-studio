@@ -2,6 +2,19 @@
 import * as engine from "../engine.js";
 import { S, LS, prefs, savePrefs } from "../state.js";
 import { $, $$, esc, toast, download } from "../ui.js";
+import { qmark } from "../explain.js";
+
+function schemeText(x) {
+  let t = String(x.theory);
+  if (x.second) {
+    const parts = x.second.parts || [];
+    const mx = x.second.max != null ? x.second.max : parts.reduce((a, p) => a + p[1], 0);
+    t += ` + ${mx} ${String(x.second.label || "practical").toLowerCase()}`;
+    if (parts.length) t += ` (${parts.map((p) => p[0].replace(/^[ip]_/, "").replace("pt", "PT") + " " + p[1]).join(", ")})`;
+    if (x.second.optional) t += " - optional";
+  }
+  return t;
+}
 
 const rerender = () => window.__render();
 let draft = null;
@@ -20,25 +33,30 @@ export function html() {
       <label class="field"><span>Place</span><input type="text" data-rule="school_place" value="${esc(r.school_place)}"></label>
       <label class="field"><span>Academic year</span><input type="text" data-rule="academic_year" value="${esc(r.academic_year)}"></label>
     </div></div>
-    <div class="card"><h3>Labels</h3><div class="grid g2">
+    <div class="card"><h3>Labels ${qmark("labels")}</h3><div class="grid g2">
       ${num("strong_gap", "Strong", "points above the student's own average", 0.5)}
       ${num("weak_gap", "Weak", "points below the student's own average", 0.5)}
       ${num("attention_class_gap", "Needs attention", "points below the class average (or below the pass mark)", 0.5)}
       ${num("drop_alert_gap", "Progress alert", "points dropped in two exams in a row", 0.5)}
     </div></div>
-    <div class="card"><h3>Passing</h3><div class="grid g2">
+    <div class="card"><h3>Passing ${qmark("pass")}</h3><div class="grid g2">
       ${num("pass_percent", "Pass mark (%)", "in each subject")}
+      ${num("distinction_percent", "Distinction (%)", "for questions like “who got distinction?”")}
       <label class="field"><span>Pass each part separately</span><select data-rule="pass_each_part"><option value="true" ${r.pass_each_part ? "selected" : ""}>Yes - theory and practical each</option><option value="false" ${!r.pass_each_part ? "selected" : ""}>No - the total only</option></select></label>
       <label class="field"><span>A blank mark means</span><select data-rule="blank_means">${r.leave_codes.map((l) => `<option ${l.code === r.blank_means ? "selected" : ""} value="${l.code}">${l.code} - ${esc(l.label)}</option>`).join("")}</select></label>
     </div></div>
-    <div class="card"><h3>Maximum marks</h3><div class="grid g2">
-      <label class="field"><span>Periodic tests</span><input type="number" data-max="pt.theory_only.theory|pt.with_practical.theory" value="${r.max_marks.pt.theory_only.theory}"></label>
-      <label class="field"><span>Big exams - theory-only subjects</span><input type="number" data-max="major.theory_only.theory" value="${r.max_marks.major.theory_only.theory}"></label>
-      <label class="field"><span>Big exams - practical subjects: theory</span><input type="number" data-max="major.with_practical.theory" value="${r.max_marks.major.with_practical.theory}"></label>
-      <label class="field"><span>Big exams - practical subjects: practical</span><input type="number" data-max="major.with_practical.practical" value="${r.max_marks.major.with_practical.practical}"></label>
-    </div></div>
+    <div class="card span2"><h3>Maximum marks in each class ${qmark("schemes")}</h3>
+      <div class="table-wrap" style="max-height:340px"><table class="t"><thead><tr><th>Classes</th><th>Subjects</th><th>Exams</th><th>Marks</th></tr></thead><tbody>
+      ${(r.mark_schemes || []).filter((x) => x.classes).map((x) => `<tr><td>${esc(x.classes.join(", "))}</td>
+        <td>${esc(x.subjects ? x.subjects.map((c) => (draft.subjects.find((s) => s.code === c) || {}).name || c).join(", ") : (x.practical_subjects ? "subjects with a practical" : "all other subjects"))}</td>
+        <td>${esc(x.exams === "pt" ? "periodic tests" : x.exams === "major" ? "big exams" : "all")}</td>
+        <td>${esc(x.assessed === false ? "not counted" + (x.note ? " (" + x.note + ")" : "") : schemeText(x))}</td></tr>`).join("")}
+      </tbody></table></div>
+      <label class="field" style="margin-top:12px;max-width:520px"><span>PT part of the internal marks comes from</span>
+        <span class="tiny muted" style="text-transform:none;letter-spacing:0;font-weight:400">Half Yearly ← ${esc((r.internal_pt_from || {}).HY || "-")}, Yearly ← ${esc((r.internal_pt_from || {}).YE || "-")}, Preboard ← ${esc((r.internal_pt_from || {}).PB || "-")}. Internal marks are optional: without them a subject is worked out of the written paper.</span></label>
+      <p class="tiny muted">The first matching line wins. To change these, Export the settings, edit “mark_schemes” and Import.</p></div>
     <div class="card"><h3>Subjects with a practical</h3><div class="chips">${draft.subjects.map((s, i) => `<label class="chip"><input type="checkbox" data-prac="${i}" ${s.practical ? "checked" : ""}> ${esc(s.name)}</label>`).join("")}</div></div>
-    <div class="card"><h3>Grades (lowest % for each)</h3><div class="grid g4">${r.grades.map((g, i) => `<label class="field"><span>${esc(g.grade)}</span><input type="number" data-grade="${i}" value="${g.min}"></label>`).join("")}</div></div>
+    <div class="card"><h3>Grades (lowest % for each) ${qmark("grades")}</h3><div class="grid g4">${r.grades.map((g, i) => `<label class="field"><span>${esc(g.grade)}</span><input type="number" data-grade="${i}" value="${g.min}"></label>`).join("")}</div></div>
     <div class="card"><h3>Leave codes</h3>${r.leave_codes.map((l, i) => `<div class="row" style="margin-bottom:6px"><b style="width:40px">${esc(l.code)}</b><span style="flex:1">${esc(l.label)}</span>
       <label class="toggle small"><input type="checkbox" data-leave="${i}" ${l.counts_as_fail ? "checked" : ""}><i></i>counts as not passed</label></div>`).join("")}</div>
     <div class="card"><h3>Exams</h3>${Object.entries(r.classes).map(([c, v]) => `<p><b>${esc(v.label)}:</b> ${v.exams.map((e) => esc(r.exams[e].name)).join(" → ")}</p>`).join("")}
@@ -67,7 +85,6 @@ export function mount(root) {
       if (d.rule === "pass_each_part") v = v === "true";
       r[d.rule] = v;
     }
-    if (d.max) d.max.split("|").forEach((p) => setPath(r.max_marks, p, parseFloat(t.value)));
     if (d.prac !== undefined) draft.subjects[+d.prac].practical = t.checked;
     if (d.grade !== undefined) r.grades[+d.grade].min = parseFloat(t.value);
     if (d.leave !== undefined) r.leave_codes[+d.leave].counts_as_fail = t.checked;

@@ -67,7 +67,8 @@ def analyse(g, cfg):
         graded = sum(grades.values())
         pi = (Decimal(sum(weights.get(gr, 0) * k for gr, k in grades.items())) * 100 / (Decimal(8) * graded)) if graded else None
         subj.append({
-            "code": c, "name": cfg.subject_name(c), "short": cfg.subject_short(c), "known": c in cfg.subjects,
+            "code": c, "name": cfg.board_name(c, g.cls), "short": cfg.board_short(c, g.cls),
+            "known": c in cfg.subjects or c in cfg.rules.get("board", {}).get("x_names", {}),
             "candidates": len(entries), "avg": Decimal(sum(marks)) / len(marks) if marks else None,
             "max": max(marks) if marks else None, "min": min(marks) if marks else None,
             "passed": sum(1 for x in entries if x["grade"] and _passed_grade(x["grade"], cfg)),
@@ -147,10 +148,12 @@ def school_vs_board(an, ds, res, cfg):
     """Link board students to school students by Board Roll No (then by exact name, flagged)."""
     if ds is None or res is None:
         return None
+    gcls = an["meta"].get("cls") or "XII"
+    code_map = {k: v for k, v in cfg.rules.get("board", {}).get("school_code_map", {}).items() if not k.startswith("_")}
     by_roll = {s.board_roll: s for s in ds.students.values() if s.board_roll}
     by_name = {}
     for s in ds.students.values():
-        if s.cls == "XII":
+        if s.cls == gcls:
             by_name.setdefault(norm_name(s.name), []).append(s)
     links, notes = [], []
     for r in an["rows"]:
@@ -171,7 +174,10 @@ def school_vs_board(an, ds, res, cfg):
             if x["marks"] is None:
                 continue
             er = res.exam_results.get((st.sid, pre))
-            row = next((y for y in er.rows if y.subject == x["code"]), None) if er else None
+            school_code = x["code"] if x["code"] in cfg.subjects and x["code"] not in code_map else code_map.get(x["code"], x["code"])
+            if gcls == "X" and x["code"] == "241":
+                school_code = "041"                      # Class X Maths Basic is the school's Maths
+            row = next((y for y in er.rows if y.subject == school_code), None) if er else None
             if row is None or row.pct is None:
                 continue
             links.append({"name": b.name, "roll": b.roll, "sid": st.sid, "how": how, "subject": x["code"],
@@ -181,7 +187,7 @@ def school_vs_board(an, ds, res, cfg):
     for l in links:
         d = subj.setdefault(l["subject"], [])
         d.append(l["gap"])
-    by_subject = [{"code": c, "name": cfg.subject_name(c), "n": len(v), "avg_gap": sum(v, Decimal(0)) / len(v)}
+    by_subject = [{"code": c, "name": cfg.board_name(c, gcls), "n": len(v), "avg_gap": sum(v, Decimal(0)) / len(v)}
                   for c, v in subj.items()]
     by_subject.sort(key=lambda x: cfg.subject_order.index(x["code"]) if x["code"] in cfg.subject_order else 99)
     return {"links": links, "by_subject": by_subject,

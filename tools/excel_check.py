@@ -51,7 +51,9 @@ def main():
          "rows": [["A", 90.5], ["B", 88]]}]}
     ours = os.path.join(OUT, "check_school.xlsm")
     with open(ours, "wb") as fh:
-        fh.write(write_workbook(ds, res, recipe=recipe, vba=True))
+        from markstudio.teachers import normalise
+        teachers = normalise(p.file_teachers, cfg, p.vocab)
+        fh.write(write_workbook(ds, res, recipe=recipe, vba=True, teachers=teachers))
     excel = os.path.join(OUT, "check_school_excel.xlsm")
     ps("excel_recalc.ps1", "-In", ours, "-Out", excel)
     ok1 = compare(ours, excel)

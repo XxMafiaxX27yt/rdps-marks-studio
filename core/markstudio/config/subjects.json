@@ -1,47 +1,392 @@
 {
-  "_help": "Subject catalog. 'practical': true means big exams are theory + practical. Max marks come from rules.json (max_marks). 'synonyms' are other ways teachers write the subject in a file heading. Add a subject by copying one block.",
+  "_help": "Subject catalog. 'practical': true means big exams are theory + practical. Max marks come from rules.json (max_marks). 'synonyms' are other ways teachers write the subject in a file heading. Add a subject by copying one block. Max marks per class come from rules.json (mark_schemes).",
   "subjects": [
-    {"code": "301", "name": "English", "short": "Eng", "practical": false,
-     "synonyms": ["english", "english core", "eng", "engl", "eng core", "english (core)"]},
-    {"code": "041", "name": "Mathematics", "short": "Maths", "practical": false,
-     "synonyms": ["mathematics", "maths", "math", "mths", "mat", "mathematic"]},
-    {"code": "241", "name": "Applied Mathematics", "short": "App Maths", "practical": false,
-     "synonyms": ["applied mathematics", "applied maths", "applied math", "app maths"]},
-    {"code": "042", "name": "Physics", "short": "Phy", "practical": true,
-     "synonyms": ["physics", "phy", "phys", "physic"]},
-    {"code": "043", "name": "Chemistry", "short": "Chem", "practical": true,
-     "synonyms": ["chemistry", "chem", "che", "chemis"]},
-    {"code": "044", "name": "Biology", "short": "Bio", "practical": true,
-     "synonyms": ["biology", "bio", "biol"]},
-    {"code": "083", "name": "Computer Science", "short": "CS", "practical": true,
-     "synonyms": ["computer science", "comp sci", "comp science", "computer", "computers", "cs", "c.s.", "c.sc", "cs python"]},
-    {"code": "065", "name": "Informatics Practices", "short": "IP", "practical": true,
-     "synonyms": ["informatics practices", "informatics", "ip", "i.p."]},
-    {"code": "048", "name": "Physical Education", "short": "PE", "practical": false,
-     "synonyms": ["physical education", "phy edu", "phy ed", "phys ed", "phy. edu", "pe", "p.e.", "p.e", "phe", "physical edu", "physical"]},
-    {"code": "843", "name": "Artificial Intelligence", "short": "AI", "practical": false,
-     "synonyms": ["artificial intelligence", "ai", "a.i.", "a.i", "artificial intel"]},
-    {"code": "030", "name": "Economics", "short": "Eco", "practical": false,
-     "synonyms": ["economics", "eco", "econ", "econo", "economic"]},
-    {"code": "054", "name": "Business Studies", "short": "BSt", "practical": false,
-     "synonyms": ["business studies", "business study", "business", "bst", "b.st", "b.st.", "bs", "b. studies"]},
-    {"code": "055", "name": "Accountancy", "short": "Accts", "practical": false,
-     "synonyms": ["accountancy", "accounts", "accounting", "accts", "acct", "acc", "acc."]},
-    {"code": "028", "name": "Political Science", "short": "Pol Sci", "practical": false,
-     "synonyms": ["political science", "pol science", "pol sci", "pol. sci", "pol.sc", "polsci", "pol sc", "political sc", "politics", "pol"]},
-    {"code": "037", "name": "Psychology", "short": "Psy", "practical": false,
-     "synonyms": ["psychology", "psycho", "psych", "psy"]},
-    {"code": "027", "name": "History", "short": "Hist", "practical": false,
-     "synonyms": ["history", "hist"]},
-    {"code": "029", "name": "Geography", "short": "Geo", "practical": false,
-     "synonyms": ["geography", "geo", "geog"]},
-    {"code": "039", "name": "Sociology", "short": "Socio", "practical": false,
-     "synonyms": ["sociology", "socio", "soc"]},
-    {"code": "302", "name": "Hindi", "short": "Hindi", "practical": false,
-     "synonyms": ["hindi", "hindi core", "hin"]},
-    {"code": "064", "name": "Home Science", "short": "Home Sc", "practical": false,
-     "synonyms": ["home science", "home sc", "hsc"]},
-    {"code": "049", "name": "Painting", "short": "Painting", "practical": false,
-     "synonyms": ["painting", "fine arts", "art"]}
+    {
+      "code": "301",
+      "name": "English",
+      "short": "Eng",
+      "practical": false,
+      "synonyms": [
+        "english",
+        "english core",
+        "eng",
+        "engl",
+        "eng core",
+        "english (core)",
+        "english language and literature",
+        "english lang and lit",
+        "eng lang lit"
+      ]
+    },
+    {
+      "code": "302",
+      "name": "Hindi",
+      "short": "Hindi",
+      "practical": false,
+      "synonyms": [
+        "hindi",
+        "hindi core",
+        "hin",
+        "hindi a",
+        "hindi b",
+        "hindi course a",
+        "hindi course b",
+        "hindi elective"
+      ]
+    },
+    {
+      "code": "122",
+      "name": "Sanskrit",
+      "short": "Skt",
+      "practical": false,
+      "synonyms": [
+        "sanskrit",
+        "sansk",
+        "skt",
+        "sans"
+      ]
+    },
+    {
+      "code": "018",
+      "name": "French",
+      "short": "Fre",
+      "practical": false,
+      "synonyms": [
+        "french",
+        "fren",
+        "fre",
+        "frn"
+      ]
+    },
+    {
+      "code": "020",
+      "name": "German",
+      "short": "Ger",
+      "practical": false,
+      "synonyms": [
+        "german",
+        "germ",
+        "ger",
+        "germany"
+      ]
+    },
+    {
+      "code": "096",
+      "name": "Spanish",
+      "short": "Spa",
+      "practical": false,
+      "synonyms": [
+        "spanish",
+        "span",
+        "spa",
+        "spn"
+      ]
+    },
+    {
+      "code": "041",
+      "name": "Mathematics",
+      "short": "Maths",
+      "practical": false,
+      "synonyms": [
+        "mathematics",
+        "maths",
+        "math",
+        "mths",
+        "mat",
+        "mathematic",
+        "maths standard",
+        "mathematics standard",
+        "maths std",
+        "maths basic",
+        "mathematics basic"
+      ]
+    },
+    {
+      "code": "241",
+      "name": "Applied Mathematics",
+      "short": "App Maths",
+      "practical": false,
+      "synonyms": [
+        "applied mathematics",
+        "applied maths",
+        "applied math",
+        "app maths"
+      ]
+    },
+    {
+      "code": "086",
+      "name": "Science",
+      "short": "Sci",
+      "practical": false,
+      "synonyms": [
+        "science",
+        "sci",
+        "gen science",
+        "general science",
+        "evs",
+        "environmental studies",
+        "env studies"
+      ]
+    },
+    {
+      "code": "087",
+      "name": "Social Science",
+      "short": "SSt",
+      "practical": false,
+      "synonyms": [
+        "social science",
+        "social studies",
+        "sst",
+        "s st",
+        "s.st",
+        "s.st.",
+        "sst.",
+        "social sc",
+        "soc sci",
+        "social",
+        "sosc"
+      ]
+    },
+    {
+      "code": "042",
+      "name": "Physics",
+      "short": "Phy",
+      "practical": true,
+      "synonyms": [
+        "physics",
+        "phy",
+        "phys",
+        "physic"
+      ]
+    },
+    {
+      "code": "043",
+      "name": "Chemistry",
+      "short": "Chem",
+      "practical": true,
+      "synonyms": [
+        "chemistry",
+        "chem",
+        "che",
+        "chemis"
+      ]
+    },
+    {
+      "code": "044",
+      "name": "Biology",
+      "short": "Bio",
+      "practical": true,
+      "synonyms": [
+        "biology",
+        "bio",
+        "biol"
+      ]
+    },
+    {
+      "code": "083",
+      "name": "Computer Science",
+      "short": "CS",
+      "practical": true,
+      "synonyms": [
+        "computer science",
+        "comp sci",
+        "comp science",
+        "computer",
+        "computers",
+        "cs",
+        "c.s.",
+        "c.sc",
+        "cs python"
+      ]
+    },
+    {
+      "code": "065",
+      "name": "Informatics Practices",
+      "short": "IP",
+      "practical": true,
+      "synonyms": [
+        "informatics practices",
+        "informatics",
+        "ip",
+        "i.p."
+      ]
+    },
+    {
+      "code": "402",
+      "name": "ICT",
+      "short": "ICT",
+      "practical": false,
+      "synonyms": [
+        "ict",
+        "information and communication technology",
+        "information technology",
+        "computer studies",
+        "computer applications",
+        "computer education",
+        "comp",
+        "i.t.",
+        "i.c.t."
+      ]
+    },
+    {
+      "code": "843",
+      "name": "Artificial Intelligence",
+      "short": "AI",
+      "practical": false,
+      "synonyms": [
+        "artificial intelligence",
+        "ai",
+        "a.i.",
+        "a.i",
+        "artificial intel"
+      ]
+    },
+    {
+      "code": "048",
+      "name": "Physical Education",
+      "short": "PE",
+      "practical": false,
+      "synonyms": [
+        "physical education",
+        "phy edu",
+        "phy ed",
+        "phys ed",
+        "phy. edu",
+        "pe",
+        "p.e.",
+        "p.e",
+        "phe",
+        "physical edu",
+        "physical"
+      ]
+    },
+    {
+      "code": "030",
+      "name": "Economics",
+      "short": "Eco",
+      "practical": false,
+      "synonyms": [
+        "economics",
+        "eco",
+        "econ",
+        "econo",
+        "economic"
+      ]
+    },
+    {
+      "code": "054",
+      "name": "Business Studies",
+      "short": "BSt",
+      "practical": false,
+      "synonyms": [
+        "business studies",
+        "business study",
+        "business",
+        "bst",
+        "b.st",
+        "b.st.",
+        "bs",
+        "b. studies"
+      ]
+    },
+    {
+      "code": "055",
+      "name": "Accountancy",
+      "short": "Accts",
+      "practical": false,
+      "synonyms": [
+        "accountancy",
+        "accounts",
+        "accounting",
+        "accts",
+        "acct",
+        "acc",
+        "acc."
+      ]
+    },
+    {
+      "code": "028",
+      "name": "Political Science",
+      "short": "Pol Sci",
+      "practical": false,
+      "synonyms": [
+        "political science",
+        "pol science",
+        "pol sci",
+        "pol. sci",
+        "pol.sc",
+        "polsci",
+        "pol sc",
+        "political sc",
+        "politics",
+        "pol"
+      ]
+    },
+    {
+      "code": "037",
+      "name": "Psychology",
+      "short": "Psy",
+      "practical": false,
+      "synonyms": [
+        "psychology",
+        "psycho",
+        "psych",
+        "psy"
+      ]
+    },
+    {
+      "code": "027",
+      "name": "History",
+      "short": "Hist",
+      "practical": false,
+      "synonyms": [
+        "history",
+        "hist"
+      ]
+    },
+    {
+      "code": "029",
+      "name": "Geography",
+      "short": "Geo",
+      "practical": false,
+      "synonyms": [
+        "geography",
+        "geo",
+        "geog"
+      ]
+    },
+    {
+      "code": "039",
+      "name": "Sociology",
+      "short": "Socio",
+      "practical": false,
+      "synonyms": [
+        "sociology",
+        "socio",
+        "soc"
+      ]
+    },
+    {
+      "code": "064",
+      "name": "Home Science",
+      "short": "Home Sc",
+      "practical": false,
+      "synonyms": [
+        "home science",
+        "home sc",
+        "hsc"
+      ]
+    },
+    {
+      "code": "049",
+      "name": "Painting",
+      "short": "Painting",
+      "practical": false,
+      "synonyms": [
+        "painting",
+        "fine arts",
+        "art"
+      ]
+    }
   ]
 }

@@ -3,22 +3,23 @@ import * as engine from "../engine.js";
 import { S } from "../state.js";
 import { $, esc, toast, download, XLSX } from "../ui.js";
 import { startTour } from "../tour.js";
+import { qmark } from "../explain.js";
 
 export const template = {
   html() {
     const classes = S.settings ? Object.entries(S.settings.rules.classes) : [];
-    return `<div class="page-head"><div><h1>Marks template</h1>
+    return `<div class="page-head"><div><h1>Marks template ${qmark("upload")}</h1>
       <p>A ready-made Excel file for teachers. Every mark cell only accepts 0 to the maximum or a leave code, so typing mistakes are stopped as they happen.</p></div></div>
-    <div class="grid g3">
+    <div class="grid g4">
       ${classes.map(([c, v]) => `<div class="card lift"><h3>${esc(v.label)}</h3>
-        <p class="muted small">Sheets: Students${v.exams.map((e) => ", " + esc(S.settings.rules.exams[e].name)).join("")}.</p>
+        <p class="muted small">Students${v.exams.map((e) => ", " + esc(S.settings.rules.exams[e].name)).join("")}${v.streams ? "" : ", internal marks (optional)"}, Teachers.</p>
         <div class="row"><button class="btn btn-primary" data-tpl="${c}">Blank template</button>
         ${S.summary ? `<button class="btn btn-ghost" data-tplf="${c}">With uploaded students</button>` : ""}</div></div>`).join("")}
-      <div class="card"><h3>How to fill it</h3><div class="stack small">
-        <div class="hint-step"><span class="n">1</span><span>Fill the <b>Students</b> sheet once: admission no, name, parents, section, group and subjects.</span></div>
-        <div class="hint-step"><span class="n">2</span><span>Type marks in each exam sheet. Leave a subject blank if the student doesn't take it.</span></div>
-        <div class="hint-step"><span class="n">3</span><span>Absent or on leave? Type AB, ML, DL, EX or NA instead of marks.</span></div>
-        <div class="hint-step"><span class="n">4</span><span>Upload the file under School results. It is read automatically.</span></div></div></div>
+      <div class="card span2"><h3>How to fill it</h3><div class="stack small">
+        <div class="hint-step"><span class="n">1</span><span>Fill the <b>Students</b> sheet once: admission no, name, parents, section - and each student's <b>Language</b> (Classes I-X) or <b>subjects</b> (XI-XII).</span></div>
+        <div class="hint-step"><span class="n">2</span><span>Type marks in each exam sheet - only the class's own subjects are there, and one <b>Language</b> column for everybody's language. In XI-XII, cells of subjects a student doesn't take turn grey.</span></div>
+        <div class="hint-step"><span class="n">3</span><span>Internal marks (portfolio, project, notebook) go on the <b>Internals</b> sheets - optional. The PT part is worked out from PT1 / PT2 by itself.</span></div>
+        <div class="hint-step"><span class="n">4</span><span>Absent or on leave? Type AB, ML, DL, EX or NA instead of marks. Upload the file under School results - it is read automatically.</span></div></div></div>
     </div>`;
   },
   mount(root) {

@@ -18,6 +18,65 @@ def _r6(fr):
     return d.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
 
 
+class _Piece:
+    __slots__ = ("kind", "value", "code", "max", "derived")
+
+    def __init__(self, kind, value, code, mx, derived=False):
+        self.kind = kind
+        self.value = Fraction(str(value)) if kind == "number" and value is not None else None
+        self.code = code or ""
+        self.max = Fraction(str(mx))
+        self.derived = derived
+
+
+def _second_half(by, cfg, cls, subject, exam, pt_marks):
+    """The practical / internal half, worked out on its own: a typed total, or the sum of its parts
+    (the PT part from the periodic test: PT / PT max x part max; absent = 0). None = not given and
+    optional (only the written paper counts)."""
+    mx = cfg.components(cls, subject, exam)["practical"]
+    if "practical" in by:
+        m = by["practical"]
+        return _Piece(m.kind, m.value, m.code, mx)
+    subs = cfg.subparts(cls, subject, exam)
+    if not subs or not any(k in by for k, _ in subs):
+        return None if cfg.second_optional(cls, subject, exam) else _Piece("blank", None, "", mx)
+    pieces = []
+    for k, pmx in subs:
+        if k == "i_pt" and k not in by:
+            pt = {m.component: m for m in pt_marks}
+            src = pt.get("theory") or pt.get("total")
+            pt_exam = cfg.pt_source(exam)
+            full = None
+            if src is not None and pt_exam:
+                full = (cfg.subject_max(cls, subject, pt_exam) if src.component == "total"
+                        else cfg.components(cls, subject, pt_exam).get("theory"))
+            if src is None or not full:
+                pieces.append(_Piece("blank", None, "", pmx, True))
+            elif src.kind == "number":
+                p = _Piece("number", 0, "", pmx, True)
+                p.value = Fraction(str(src.value)) / Fraction(str(full)) * Fraction(str(pmx))
+                pieces.append(p)
+            elif src.kind in ("blank", "leave"):
+                pieces.append(_Piece("number", 0, "", pmx, True))
+            else:
+                pieces.append(_Piece("invalid", None, "", pmx, True))
+            continue
+        m = by.get(k)
+        pieces.append(_Piece(m.kind, m.value, m.code, pmx) if m else _Piece("blank", None, "", pmx))
+    if all(p.kind == "number" for p in pieces):
+        out = _Piece("number", 0, "", mx)
+        out.value = sum(p.value for p in pieces)
+        return out
+    if all(p.kind == "blank" for p in pieces if not p.derived):
+        return _Piece("blank", None, "", mx)
+    lv = next((p for p in pieces if p.kind == "leave"), None)
+    if lv:
+        return _Piece("leave", None, lv.code, mx)
+    if any(p.kind == "invalid" for p in pieces):
+        return _Piece("invalid", None, "", mx)
+    return _Piece("partial", None, "", mx)
+
+
 def check(ds, res):
     cfg = ds.cfg
     problems = []
@@ -31,23 +90,30 @@ def check(ds, res):
         parts.setdefault((m.sid, m.exam, m.subject), []).append(m)
     pct_of = {}
     passed_of = {}
+    got_of = {}
     for (sid, exam, subject), ms in parts.items():
+        cls = ds.students[sid].cls
         by = {m.component: m for m in ms}
         total = by.get("total")
-        maxes = cfg.components(subject, exam)
+        maxes = cfg.components(cls, subject, exam)
         if total is not None:
-            pieces = [(total, Fraction(str(cfg.subject_max(subject, exam))))]
+            pieces = [_Piece(total.kind, total.value, total.code, cfg.subject_max(cls, subject, exam))]
         else:
-            pieces = []
-            for comp, mx in maxes.items():
-                pieces.append((by.get(comp), Fraction(str(mx))))
-        kinds = [p[0].kind if p[0] is not None else "blank" for p in pieces]
+            th = by.get("theory")
+            pieces = [_Piece(th.kind, th.value, th.code, maxes.get("theory", 0)) if th
+                      else _Piece("blank", None, "", maxes.get("theory", 0))]
+            if "practical" in maxes:
+                second = _second_half(by, cfg, cls, subject, exam, parts.get((sid, cfg.pt_source(exam), subject), []))
+                if second is not None:
+                    pieces.append(second)
+        kinds = [p.kind for p in pieces]
         if all(k == "number" for k in kinds):
-            got = sum(Fraction(str(p[0].value)) for p in pieces)
-            mx = sum(p[1] for p in pieces)
+            got = sum(p.value for p in pieces)
+            mx = sum(p.max for p in pieces)
             pct_of[(sid, exam, subject)] = got / mx * 100
+            got_of[(sid, exam, subject)] = (got, mx)
             if each:
-                ok = all(_r6(Fraction(str(p[0].value)) / p[1] * 100) >= _r6(pass_pct) for p in pieces)
+                ok = all(_r6(p.value / p.max * 100) >= _r6(pass_pct) for p in pieces)
             else:
                 ok = _r6(got / mx * 100) >= _r6(pass_pct)
             passed_of[(sid, exam, subject)] = "Yes" if ok else "No"
@@ -55,7 +121,7 @@ def check(ds, res):
             if all(k == "blank" for k in kinds):
                 code = blank_means
             else:
-                code = next((p[0].code for p in pieces if p[0] is not None and p[0].kind == "leave"), None)
+                code = next((p.code for p in pieces if p.kind == "leave"), None)
                 if code is None:
                     code = "INVALID" if "invalid" in kinds else "INCOMPLETE"
             passed_of[(sid, exam, subject)] = "No" if cfg.counts_as_fail(code) else ""
@@ -77,15 +143,8 @@ def check(ds, res):
 
     # overall % per student per exam
     sums = {}
-    for (sid, exam, subject), p in pct_of.items():
-        ms = parts[(sid, exam, subject)]
-        by = {m.component: m for m in ms}
-        if "total" in by:
-            got, mx = Fraction(str(by["total"].value)), Fraction(str(cfg.subject_max(subject, exam)))
-        else:
-            got = sum(Fraction(str(by[c].value)) for c in cfg.components(subject, exam))
-            mx = Fraction(str(cfg.subject_max(subject, exam)))
-        s = sums.setdefault((sid, exam), [Fraction(0), Fraction(0)])
+    for key3, (got, mx) in got_of.items():
+        s = sums.setdefault((key3[0], key3[1]), [Fraction(0), Fraction(0)])
         s[0] += got
         s[1] += mx
     for key, er in res.exam_results.items():

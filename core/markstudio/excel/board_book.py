@@ -20,11 +20,27 @@ def _n(d):
     return "" if d is None else float(d)
 
 
+class BoardNames:
+    """The settings, but subject names follow the gazette's class (Class X codes like 184 = English)."""
+
+    def __init__(self, cfg, cls):
+        self._cfg, self._cls = cfg, cls
+
+    def __getattr__(self, k):
+        return getattr(self._cfg, k)
+
+    def subject_name(self, code):
+        return self._cfg.board_name(code, self._cls)
+
+    def subject_short(self, code):
+        return self._cfg.board_short(code, self._cls)
+
+
 class BoardWorkbook:
     def __init__(self, analyses, cfg, years=None, link=None, raw_texts=None, generated=None, logo=None):
         self.an = analyses[-1]                     # latest year is the main one
         self.analyses = analyses
-        self.cfg = cfg
+        self.cfg = BoardNames(cfg, self.an["meta"].get("cls") or "")
         self.years = years
         self.link = link
         self.raw = raw_texts or []
@@ -74,7 +90,7 @@ class BoardWorkbook:
         hr = 4
         heads = ["Rank (best 5)", "Roll No", "Name", "Sex"]
         for c in codes:
-            heads += [cfg.subject_short(c) + (f" ({c})" if c not in cfg.subjects else ""), "Gr"]
+            heads += [cfg.subject_short(c) + (f" ({c})" if c not in cfg.subjects and cfg.subject_short(c) == c else ""), "Gr"]
         heads += ["Total", "Subjects", "All subjects %", "Best 5 %", "Result", "Compartment", "GR1", "GR2", "GR3"]
         for c, h in enumerate(heads):
             ws.write(hr, c, h, f.header())

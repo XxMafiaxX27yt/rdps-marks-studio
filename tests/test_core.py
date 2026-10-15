@@ -341,7 +341,7 @@ def test_sample_data_full_pipeline_verifies():
     ds = p.build()
     res = calc.compute(ds)
     out = verify.check(ds, res)
-    assert out["ok"] and len(ds.students) == 224
+    assert out["ok"] and len(ds.students) == 364
     codes = {i.code for i in ds.issues if i.severity == "error"}
     assert codes == {"invalid_mark"}
 

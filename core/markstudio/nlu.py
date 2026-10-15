@@ -32,13 +32,50 @@ who's whats what's who is did does have has had not no yes""".split())
 # "week"/"weekest" are how speech-to-text often writes "weak"/"weakest"
 WEAK = ["weak", "weakest", "week", "weekest", "poor", "struggling", "struggle", "bad at", "kamzor", "kamjor", "not good",
         "needs improvement"]
-STRONG = ["strong", "good at", "excellent", "best at", "achha", "acha", "accha", "great at", "strongest"]
+STRONG = ["strong", "good at", "good in", "better in", "achha in", "accha in", "excellent", "best at", "achha", "acha", "accha", "great at", "strongest"]
 ATTENTION = ["needs attention", "need attention", "attention", "needs help", "need help", "at risk", "concern", "critical",
              "needs support", "need support", "help needed"]
 FAIL = ["fail", "failed", "failing", "not passed", "did not pass", "didn't pass", "below pass", "below the pass", "flunk"]
 PASSW = ["passed"]
 ABSENT = ["absent", "missed", "gair hazir", "did not appear", "didn't appear"]
 LEAVE = ["medical", "leave", "on leave", "ml", "duty leave"]
+
+
+_CT = r"(?P<c>xii|xi|x|ix|viii|vii|vi|v|iv|iii|ii|i|12|11|10|[1-9])"
+CLASS_PATTERNS = [
+    # class 6 / class xii b / std 9-c / grade 10
+    r"\b(?:class|std|standard|cls|grade|kaksha)\s*" + _CT + r"(?:st|nd|rd|th)?(?:\s*[-/ ]?\s*(?P<s>[a-h])\b)?(?![0-9])",
+    # 10th, 6th-b, 12th c
+    r"\b(?P<c>12|11|10|[1-9])(?:st|nd|rd|th)\b(?:\s*[-/ ]?\s*(?P<s>[a-h])\b)?",
+    # 11a, 6-b, 10/c, xi-a, vi b
+    r"\b(?P<c>12|11|10|[1-9]|xii|xi|ix|viii|vii|vi|iv)\s*[-/]\s*(?P<s>[a-h])\b",
+    r"\b(?P<c>12|11|10|[1-9]|xii|xi|ix|viii|vii|vi|iv)(?P<s>[a-h])\b",
+    # 11 a, 12 b (a space and one letter - only for 6 to 12 so "top 5 a" stays a number)
+    r"\b(?P<c>12|11|10|[6-9]|xii|xi|ix|viii|vii|vi)\s+(?P<s>[a-h])\b(?!\s*(?:\d|grade))",
+    # a roman class on its own: xi, xii, ix, viii, vii, vi, iv
+    r"\b(?P<c>xii|xi|ix|viii|vii|vi|iv)\b",
+]
+_ROMANS = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"]
+
+
+def to_class(tok):
+    t = tok.lower()
+    if t.isdigit():
+        n = int(t)
+        return _ROMANS[n - 1] if 1 <= n <= 12 else None
+    return t.upper() if t.upper() in _ROMANS else None
+
+
+COMBO_WORDS = [("pcmb", "PCMB"), ("pcm", "PCM"), ("non medical", "PCM"), ("non-medical", "PCM"), ("pcb", "PCB"),
+               ("commerce with maths", "Commerce with Maths"), ("commerce maths", "Commerce with Maths"),
+               ("commerce without maths", "Commerce"), ("commerce", "*Commerce"), ("humanities", "Humanities"),
+               ("arts", "Humanities"), ("science stream", "*Science"), ("science students", "*Science")]
+GRADES_RE = r"\b(a1|a2|b1|b2|c1|c2|d1|d2)\b"
+SUMMARY = ["result of", "results of", "summary", "overview", "performance of", "how is", "how are", "how did", "performing",
+           "doing", "report of class", "class report", "overall result", "kaisa", "kaise", "kaisi", "ka result", "ki result",
+           "result kya", "perform"]
+TEACHER_WORDS = ["teacher", "teachers", "teacher wise", "teacherwise", "sir", "maam", "ma'am", "madam", "mr", "mrs", "ms",
+                 "faculty", "teaching", "taught", "teaches"]
 
 
 def _load_intents():
@@ -51,9 +88,10 @@ def _has(text, phrases):
 
 
 class Understander:
-    def __init__(self, ds=None, res=None, boards=None, cfg=None):
+    def __init__(self, ds=None, res=None, boards=None, cfg=None, teachers=None):
         self.ds, self.res, self.boards = ds, res, boards or []
         self.cfg = cfg or (ds.cfg if ds else None)
+        self.teachers = teachers or []
         self.vocab = Vocab(self.cfg)
         self.intents = _load_intents()
         self.kw = {i["id"]: [k.lower() for k in i["keywords"]] for i in self.intents["intents"]}
@@ -73,11 +111,12 @@ class Understander:
         low = raw.lower().replace("’", "'")
         e = {"raw": raw, "low": low, "n": None, "conds": [], "subjects": [], "students": [], "student_amb": [],
              "classes": [], "sections": [], "groups": [], "exams": [], "genders": [], "by": None, "rolls": [],
-             "board_rolls": [], "used": set()}
+             "board_rolls": [], "used": set(), "combos": [], "teachers": [], "grades": []}
         work = low
         # numbers for "top 5", "best 10", "5 toppers"
         m = re.search(r"\b(top|best|first|highest|bottom|lowest|last|worst|least)\s+(\d{1,3})\b", work) or \
-            re.search(r"\b(\d{1,3})\s+(toppers|top|best|students|bachhe|bacche|kids|names)\b", work)
+            re.search(r"(?<!class )(?<!std )(?<!grade )(?<!kaksha )\b(\d{1,3})\s+(toppers|top|best|students|bachhe|bacche|kids|names)\b",
+                      work)
         if m:
             num = m.group(2) if m.group(2).isdigit() else m.group(1)
             e["n"] = int(num)
@@ -99,6 +138,9 @@ class Understander:
                 else:
                     self._thresholds.append((op, float(mm.group(1)), mm.start()))
                 work = work[:mm.start()] + " " * (mm.end() - mm.start()) + work[mm.end():]
+        for sp_ in self._special_thresholds(low):
+            if not any(t[0] == sp_[0] and t[1] == sp_[1] for t in self._thresholds):
+                self._thresholds.append(sp_)
         # roll / admission / board roll numbers
         for mm in re.finditer(r"\broll\s*(?:no\.?|number|num)?\s*[:#]?\s*(\d{1,4})\b", work):
             e["rolls"].append(mm.group(1))
@@ -114,25 +156,33 @@ class Understander:
         for mm in list(re.finditer(r"\bsections?\s*([a-h])\s*(?:and|&|vs|versus|aur|or|,)\s*(?:section\s*)?([a-h])\b", work)):
             e["sections"] += [mm.group(1).upper(), mm.group(2).upper()]
             work = work.replace(mm.group(0), " ", 1)
-        # "11A", "XI-A", "class 12 b", "xii b" -> class + section
-        for mm in list(re.finditer(r"\b(?:class |std |standard |cls )?(xii|xi|12|11)(?:th)?\s*[-/ ]?\s*([a-h])\b", work)):
-            e["classes"].append("XII" if mm.group(1) in ("xii", "12") else "XI")
-            e["sections"].append(mm.group(2).upper())
-            work = work.replace(mm.group(0), " ", 1)
-        for mm in re.finditer(r"\b(?:class|std|standard|cls)\s*(xii|xi|12|11)(?:th)?\b|\b(xii|xi|12th|11th)\b", work):
-            g = mm.group(1) or mm.group(2)
-            e["classes"].append("XII" if g in ("xii", "12", "12th") else "XI")
-            work = work.replace(mm.group(0), " ", 1)
+        # classes I-XII (+ section): "class 6", "class 12 b", "10th", "9th-c", "11a", "XI-A", "vi b", "class x"
+        # (a bare number is only a class when the word class/std/grade is there or it carries a section/ordinal)
+        for pat in CLASS_PATTERNS:
+            while True:
+                mm = re.search(pat, work)
+                if not mm:
+                    break
+                cls = to_class(mm.group("c"))
+                if not cls:
+                    work = work[:mm.start()] + " " * (mm.end() - mm.start()) + work[mm.end():]
+                    continue
+                e["classes"].append(cls)
+                if mm.groupdict().get("s"):
+                    e["sections"].append(mm.group("s").upper())
+                work = work[:mm.start()] + " " * (mm.end() - mm.start()) + work[mm.end():]
         for mm in re.finditer(r"\b(?:section|sec)\.?\s*([a-h])\b|\b([a-h])\s*(?:section|sec)\b", work):
             e["sections"].append((mm.group(1) or mm.group(2)).upper())
             work = work.replace(mm.group(0), " ", 1)
         for mm in re.finditer(r"\bgroup\s*([a-e])\b", work):
             e["groups"].append(mm.group(1).upper())
             work = work.replace(mm.group(0), " ", 1)
-        for ph, gid in sorted(self.vocab.group_phrases.items(), key=lambda x: -len(x[0])):
-            if len(ph) > 4 and not ph.startswith("group") and _has(work, [ph]):
-                e["groups"].append(gid)
-                work = re.sub(re.escape(ph), " ", work)
+        # streams of XI-XII: PCM / PCB / PCMB / commerce (with maths) / humanities
+        for ph, combo in COMBO_WORDS:
+            if _has(work, [ph]):
+                e["combos"].append(combo)
+                work = re.sub(r"(^|[^a-z])" + re.escape(ph) + r"($|[^a-z])", r"\1 \2", work)
+                break
         if _has(work, ["girls", "girl", "ladkiyan", "female"]):
             e["genders"].append("F")
         if _has(work, ["boys", "boy", "ladke", "male"]):
@@ -194,8 +244,22 @@ class Understander:
         for _, c in subj_pos:
             if c not in e["subjects"]:
                 e["subjects"].append(c)
-        # students (full names first, then first names)
+        # teachers (by name; before students, so "Mr Verma" is not read as a student)
         rest = [t if j not in used_tok else "" for j, t in enumerate(toks)]
+        teacherish = _has(low, TEACHER_WORDS)
+        for t in self.teachers:
+            tt = [x for x in norm_name(t["name"]).split() if x not in ("mr", "mrs", "ms", "dr", "sir", "maam", "madam", "miss")]
+            hit = [j for j, w in enumerate(rest) if w and len(w) >= 3 and w in tt]
+            if hit and (teacherish or len(set(rest[j] for j in hit)) >= 2):
+                if t["id"] not in e["teachers"]:
+                    e["teachers"].append(t["id"])
+                for j in hit:
+                    rest[j] = ""
+        # grades: "how many got A1"
+        for mm in re.finditer(GRADES_RE, low):
+            e["grades"].append(mm.group(1).upper())
+        rest = [w if not re.fullmatch(GRADES_RE, w or "") else "" for w in rest]
+        # students (full names first, then first names)
         self._find_students(rest, e)
         # labels with positions
         e["toks"] = toks
@@ -274,10 +338,40 @@ class Understander:
         low = e["low"]
         kw = self.kw
         has_student = bool(e["students"] or e["student_amb"] or e["rolls"])
-        if _has(low, kw["help"]) and len(low.split()) <= 6:
+        if _has(low, kw["help"]) and len(low.split()) <= 6 and not _has(low, ATTENTION) and not (
+                e["classes"] or e["subjects"] or has_student):
             return "help", "keyword"
         if self.boards and (_has(low, kw["board"]) or (e["board_rolls"] and not self.ds)):
             return "board", "keyword"
+        if e["teachers"] or _has(low, ["teacher", "teachers", "teacher wise", "teacherwise", "faculty", "teaching",
+                                       "who teaches", "taught by"]):
+            return "teacher", "keyword"
+        # the class's weakest / strongest subject (no student named)
+        if not has_student and _has(low, ["subject", "subjects"]) and not e["thresholds"] and not _has(low, kw["count"]):
+            if _has(low, ["weakest", "weekest", "weak", "worst", "poorest", "lowest", "kamzor", "toughest"]) and \
+                    not _has(low, ["students weak", "who is weak", "who are weak", "students who"]):
+                return "hardest", "keyword"
+            if _has(low, ["strongest", "best", "strong", "highest", "easiest", "good"]) and \
+                    not _has(low, ["each subject", "every subject", "subject toppers", "subject wise", "per subject",
+                                   "all subjects", "subject topper"]) and not _has(low, ["who"]):
+                return "easiest", "keyword"
+        topword = _has(low, ["top", "topper", "toppers", "topped", "first", "highest", "best", "rank 1", "number one",
+                             "no 1", "number 1", "first position", "sabse achhe", "sabse zyada"])
+        if topword and not has_student and _has(low, ["each section", "every section", "per section", "section wise",
+                                                      "sectionwise", "section toppers", "section topper", "all sections",
+                                                      "in each section", "har section"]):
+            return "toppers_by_section", "keyword"
+        if topword and not has_student and _has(low, ["each subject", "every subject", "per subject", "subject wise",
+                                                      "subjectwise", "subject toppers", "subject topper", "all subjects",
+                                                      "har subject"]):
+            return "toppers_by_subject", "keyword"
+        if not has_student and _has(low, ["which section", "what section", "kaun sa section", "konsa section"]):
+            e["by"] = "section"
+            return "average", "keyword"
+        if not has_student and _has(low, ["which class", "what class", "kaun si class", "konsi class"]) and \
+                not _has(low, ["is in which class", "in which class is"]):
+            e["by"] = "class"
+            return "average", "keyword"
         if has_student:
             if _has(low, ["weakest", "weekest", "strongest", "best subject", "worst subject", "weak subject", "strong subject",
                           "kamzor subject", "which subject", "weak in which", "best subjects", "worst subjects"]):
@@ -302,32 +396,42 @@ class Understander:
             return "dropped", "keyword"
         if _has(low, kw["pass_rate"]):
             return "pass_rate", "keyword"
-        if _has(low, kw["distribution"]) and not e["label_pos"]:
-            return "distribution", "keyword"
-        has_cond = bool(e["label_pos"] or e["thresholds"] or _has(low, FAIL) or _has(low, ABSENT) or
+        has_cond = bool(e["label_pos"] or e["thresholds"] or e["grades"] or _has(low, FAIL) or _has(low, ABSENT) or
                         _has(low, ["medical", "on leave", "duty leave"]))
-        if _has(low, kw["count"]):
+        if _has(low, kw["distribution"]) and not e["label_pos"] and not (e["grades"] and _has(low, kw["count"] + ["who"])):
+            return "distribution", "keyword"
+        if _has(low, kw["count"]) or _has(low, ["what percentage of students", "what percent of students",
+                                                "percentage of students", "kitne percent"]):
             return "count", "keyword"
         if _has(low, ["absent", "leave", "medical", "missed"]) and not e["label_pos"] and not e["thresholds"]:
             return "absent", "keyword"
-        if e["n"] is not None or _has(low, ["toppers", "topper", "top", "rank list", "merit list", "merit"]):
-            if _has(low, ["bottom", "lowest", "last", "worst", "least"]):
+        if e["n"] is not None or _has(low, ["toppers", "topper", "top", "topped", "rank list", "merit list", "merit",
+                                            "rank 1", "number one", "first position", "came first", "is first",
+                                            "stood first"]):
+            if _has(low, ["bottom", "lowest", "last", "worst", "least", "sabse kam"]):
                 return "bottom", "keyword"
             return "top", "keyword"
         if has_cond:
             return "list", "keyword"
+        if _has(low, SUMMARY) or re.search(r"\bresults?\b", low):
+            return "summary", "keyword"
         if _has(low, kw["average"]):
             return "average", "keyword"
         if _has(low, ["highest", "maximum", "max", "most marks", "sabse zyada", "best score"]):
             if _has(low, ["who", "kaun", "kis", "students", "scorers"]) and not e["subjects"]:
                 return "top", "keyword"
             return "highest", "keyword"
-        if _has(low, ["lowest", "minimum", "min", "least marks", "worst score"]):
+        if _has(low, ["lowest", "minimum", "min", "least marks", "worst score", "sabse kam", "sabse kum"]):
+            if _has(low, ["who", "kaun", "kis", "kiske", "students", "scorers"]) and not e["subjects"]:
+                return "bottom", "keyword"
             return "lowest", "keyword"
-        if _has(low, ["best", "who scored the most"]):
+        if _has(low, ["best", "who scored the most", "achhe", "acche"]):
             return "top", "keyword"
         if _has(low, ["worst", "bottom"]):
             return "bottom", "keyword"
+        if _has(low, ["list", "names", "show students", "students of", "student list", "all students", "students in",
+                      "name list", "show all"]) or (e["classes"] and _has(low, ["students"])):
+            return "list", "keyword"
         # no clear keyword: use the on-device AI's guess when it is confident
         if hints:
             best = max(hints, key=lambda h: h.get("score", 0))
@@ -369,10 +473,30 @@ class Understander:
             sc["gender"] = e["genders"][0]
         if e["exams"] and not (intent == "compare" and len(e["exams"]) >= 2):
             sc["exam"] = e["exams"][0]
+        if e["combos"] and intent != "compare":
+            sc["combo"] = e["combos"][0]
         if e["n"] is not None:
             q["n"] = e["n"]
-        if e["by"] and intent in ("average", "pass_rate"):
+        elif intent == "top" and _has(e["low"], ["topped", "rank 1", "number one", "no 1", "number 1", "first position",
+                                                  "came first", "is first", "stood first", "who is first", "who came first"]):
+            q["n"] = 1
+        if e["by"] and intent in ("average", "pass_rate", "count"):
             q["by"] = e["by"]
+        if intent == "teacher":
+            q["teachers"] = e["teachers"]
+            if e["subjects"]:
+                q["subject"] = e["subjects"][0]
+            return self._done(q, how, e)
+        if intent in ("toppers_by_section", "toppers_by_subject"):
+            q["op"] = "toppers_by"
+            q["by"] = "section" if intent == "toppers_by_section" else "subject"
+            if e["subjects"] and q["by"] == "section":
+                q["subject"] = e["subjects"][0]
+            intent = "toppers_by"
+        if intent == "summary":
+            if e["subjects"]:
+                q["subject"] = e["subjects"][0]
+            return self._done(q, how, e)
         # students
         if intent in ("student", "student_subjects", "rank"):
             sid = self._student_from(e)
@@ -418,8 +542,9 @@ class Understander:
         if intent in ("hardest", "easiest") and e["subjects"]:
             pass
         # which class? (ranking-type questions need one class)
-        needs_class = intent in ("top", "bottom", "average", "highest", "lowest", "hardest", "easiest", "pass_rate",
-                                 "distribution") or (intent == "compare" and not any("cls" in g for g in q.get("groups", [])))
+        needs_class = intent in ("top", "bottom", "highest", "lowest", "hardest", "easiest", "toppers_by",
+                                 "distribution") or (intent in ("average", "pass_rate") and q.get("by") != "class") or \
+            (intent == "compare" and not any("cls" in g for g in q.get("groups", [])))
         classes = self.ds.classes()
         if needs_class and not sc.get("cls") and len(classes) > 1:
             return {"clarify": True, "question": "Which class?",
@@ -480,10 +605,25 @@ class Understander:
             else:
                 conds.append({"label": label, "subject": None})
         left = [code for k, (p, code) in enumerate(sp) if k not in used]
+        any_subject = _has(low, ["any subject", "in any", "kisi bhi subject", "kisi subject", "at least one subject",
+                                 "one or more subjects", "some subject"])
         for op, val, _ in e["thresholds"]:
-            conds.append({"op": op, "value": val, "subject": left[0] if left else (sp[0][1] if sp and not conds else None)})
+            c = {"op": op, "value": val, "subject": left[0] if left else (sp[0][1] if sp and not conds else None)}
+            if any_subject and not c["subject"]:
+                c["any"] = True
+            conds.append(c)
+        for g in e["grades"]:
+            conds.append({"grade": g, "subject": left[0] if left else None})
         if _has(low, FAIL):
-            conds.append({"result": "not_passed", "subject": left[0] if left and not e["thresholds"] else None})
+            c = {"result": "not_passed", "subject": left[0] if left and not e["thresholds"] else None}
+            m = re.search(r"\b(?:more than one|more than 1|two or more|2 or more|at least two|at least 2|multiple|"
+                          r"many|several|(\d|two|three|four))\s+subjects?\b", low)
+            if m:
+                words = {"two": 2, "three": 3, "four": 4}
+                g = m.group(1)
+                c["min"] = int(g) if g and g.isdigit() else words.get(g, 2)
+                c["subject"] = None
+            conds.append(c)
         elif _has(low, ["who passed", "students passed", "have passed", "has passed"]):
             conds.append({"result": "passed", "subject": left[0] if left else None})
         if _has(low, ABSENT):
@@ -493,6 +633,16 @@ class Understander:
         if not conds and e["subjects"]:
             conds.append({"op": ">=", "value": 0, "subject": e["subjects"][0]})
         return conds
+
+    def _special_thresholds(self, low):
+        """Words that mean a mark: distinction (75%+), full marks / centum (100)."""
+        out = []
+        if _has(low, ["distinction", "distinctions"]):
+            out.append((">=", float(self.cfg.rules.get("distinction_percent", 75)), 0))
+        if _has(low, ["full marks", "centum", "cent percent", "100 out of 100", "perfect score", "100 marks"]) or \
+                re.search(r"\b(?:got|scored|with|get)\s+100\b(?!\s*%?\s*(?:students|bachhe))", low):
+            out.append((">=", 100.0, 0))
+        return out
 
     def _compare_groups(self, e):
         if len(e["subjects"]) >= 2 and not (len(e["sections"]) >= 2 or len(set(e["classes"])) >= 2):
@@ -563,7 +713,8 @@ class Understander:
                 "easiest": "easiest subject", "compare": "compare", "student": "student's marks",
                 "student_subjects": "student's subjects in order", "rank": "student's rank", "pass_rate": "pass rate",
                 "distribution": "grade distribution", "improved": "most improved", "dropped": "students who dropped",
-                "absent": "absent / on leave", "help": "help"}.get(op, op.replace("_", " "))
+                "absent": "absent / on leave", "help": "help", "summary": "summary of results",
+                "toppers_by": "toppers", "teacher": "teacher results"}.get(op, op.replace("_", " "))
         parts = [bits]
         if q.get("n"):
             parts.append(f"(n = {q['n']})")
@@ -574,9 +725,12 @@ class Understander:
             if c.get("label"):
                 parts.append(f"[{c['label']} in {s}]")
             elif c.get("op"):
-                parts.append(f"[{s if c.get('subject') else 'overall'} {c['op']} {c['value']}%]")
+                parts.append(f"[{s if c.get('subject') else ('any subject' if c.get('any') else 'overall')} {c['op']} {c['value']}%]")
+            elif c.get("grade"):
+                parts.append(f"[grade {c['grade']}{' in ' + s if c.get('subject') else ''}]")
             elif c.get("result"):
-                parts.append(f"[{c['result'].replace('_', ' ')}{' in ' + s if c.get('subject') else ''}]")
+                parts.append(f"[{c['result'].replace('_', ' ')}{' in ' + s if c.get('subject') else ''}"
+                             f"{' in ' + str(c['min']) + '+ subjects' if c.get('min') else ''}]")
             elif c.get("status"):
                 parts.append(f"[{c['status']}{' in ' + s if c.get('subject') else ''}]")
         if q.get("subjects"):
@@ -587,6 +741,9 @@ class Understander:
             parts.append(f"by {q['by']}")
         if q.get("students") and self.ds:
             parts.append(self.ds.students[q["students"][0]].name)
+        if q.get("teachers"):
+            names = {t["id"]: t["name"] for t in self.teachers}
+            parts.append(", ".join(names.get(t, t) for t in q["teachers"]))
         scope = []
         if sc.get("cls"):
             scope.append(f"Class {sc['cls']}")
@@ -594,6 +751,8 @@ class Understander:
             scope.append(f"Section {sc['section']}")
         if sc.get("group"):
             scope.append(f"Group {sc['group']}")
+        if sc.get("combo"):
+            scope.append(sc["combo"].lstrip("*"))
         if sc.get("gender"):
             scope.append({"F": "girls", "M": "boys"}[sc["gender"]])
         if sc.get("exam"):

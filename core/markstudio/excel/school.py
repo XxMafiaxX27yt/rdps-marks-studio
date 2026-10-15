@@ -1,7 +1,7 @@
 """Writes the school-tests workbook (.xlsm with macros, or .xlsx).
 
 Design rules
-* Teachers type/fix marks in 'Marks Matrix'. Everything else is formulas, so a
+* Teachers type/fix marks in the 'Marks ...' sheets (one per class / stream). Everything else is formulas, so a
   corrected mark flows into results, labels, reasons, dashboards and charts.
 * Every formula also stores the value Python worked out (cached value), so the
   file shows correct numbers even in viewers that do not recalculate.
@@ -43,7 +43,7 @@ xlsxwriter.worksheet.Worksheet._prepare_formula = _fast_prepare_formula
 
 # Subject Results columns
 SR_COLS = ["Key", "Student ID", "Name", "Class", "Section", "Group", "Exam", "Exam No", "Subject",
-           "Theory", "Theory Max", "Practical", "Practical Max", "Status", "Obtained", "Max", "%", "Grade",
+           "Theory / Written", "Theory Max", "Practical / Internal", "Pr / Int Max", "Status", "Obtained", "Max", "%", "Grade",
            "Passed", "Student Avg %", "Class Avg %", "vs Own Avg", "vs Class Avg", "Label", "Reason",
            "Theory %", "Practical %"]
 (SR_KEY, SR_ID, SR_NAME, SR_CLASS, SR_SEC, SR_GROUP, SR_EXAM, SR_EXNO, SR_SUBJ, SR_TH, SR_THMAX, SR_PR, SR_PRMAX,
@@ -71,9 +71,55 @@ def _rng(sheet, r1, c, r2, c2=None):
     return f"{_q(sheet)}!{rc(r1, c, True, True)}:{rc(r2, c2, True, True)}"
 
 
+OV = "Overview"
+COMBO_SHORT = {"Commerce with Maths": "Comm+Maths", "Other subjects": "Other"}
+
+
+def _n(d):
+    """A number for a formula: 80 -> '80', 37.5 -> '37.5'."""
+    return f"{float(d):g}"
+
+
+def _sheet_name(base, used):
+    base = "".join(ch for ch in base if ch not in "[]:*?/\'")[:31].strip()
+    name, k = base, 2
+    while name in used:
+        name = f"{base[:28]} {k}"
+        k += 1
+    return name
+
+
+def _slot_plan(cfg, cls, students, subjects):
+    """Subjects shared by (nearly) everybody get their own column; the rest - each student's language or
+    elective - go into 'Language' / 'Elective' columns. -> (core subjects, slots)"""
+    n = max(1, len(students))
+    langs = set(cfg.languages_for(cls))
+    takers = {s: sum(1 for st in students if s in st.subjects) for s in subjects}
+    core = [s for s in subjects if s not in langs and takers[s] >= max(1, n * 0.6)]
+    slot_of, rests = {}, []
+    for st in students:
+        rest = [x for x in cfg.order_subjects(set(st.subjects) & set(subjects)) if x not in core]
+        slot_of[st.sid] = {x: i for i, x in enumerate(rest)}
+        rests.append(rest)
+    n_slots = max((len(r) for r in rests), default=0)
+    slots = []
+    for i in range(n_slots):
+        subs = {r[i] for r in rests if len(r) > i}
+        is_lang = subs <= langs
+        title = ("Language" if is_lang else "Elective") + (f" {i + 1}" if n_slots > 1 and not is_lang else "")
+        slots.append({"title": title, "short": "Lang" if is_lang else ("Elect" + (f" {i + 1}" if n_slots > 1 else "")),
+                      "subjects": subs})
+    return core, slots, slot_of
+
+
+def _slot_index(spec, st, subject):
+    return spec["slot_of"].get(st.sid, {}).get(subject)
+
+
 class SchoolWorkbook:
-    def __init__(self, ds, res, recipe=None, vba=None, generated=None, logo=None):
+    def __init__(self, ds, res, recipe=None, vba=None, generated=None, logo=None, teachers=None):
         self.ds, self.res, self.cfg = ds, res, ds.cfg
+        self.teachers = teachers or []
         self.recipe = recipe or {"items": []}
         self.vba = vba
         self.generated = generated or datetime.datetime.now().strftime("%d-%m-%Y %H:%M")
@@ -183,7 +229,10 @@ class SchoolWorkbook:
         for it in extras:
             if it["type"] == "query_sheet":
                 order.append(it["sheet"])
-        order += ["Marks Matrix", "Subject Results", "Student Master", "Validation Report", "Config",
+        if self.teachers:
+            order.append("Teachers")
+        order += [OV] + self.plan_entry_sheets()
+        order += ["Subject Results", "Student Master", "Validation Report", "Config",
                   "Source Data", "_lists", "_calc", "_stats", "_meta"]
         for i, name in enumerate(order):
             ws = wb.add_worksheet(name)
@@ -205,6 +254,8 @@ class SchoolWorkbook:
         self.write_subject_analysis()
         self.write_marks_analysis()
         self.write_progress()
+        if self.teachers:
+            self.write_teachers()
         self.write_validation()
         self.write_source()
         self.write_extras()
@@ -213,7 +264,7 @@ class SchoolWorkbook:
             self.sheets[name].hide()
         # printing: A4 landscape, fit to the page width, headings repeated on every page
         for name, repeat in (("Subject Analysis", None), ("Marks Analysis", None), ("Progress", None),
-                             ("Marks Matrix", MX_HEADER_ROW), ("Subject Results", 0), ("Student Master", 0),
+                             (OV, MX_HEADER_ROW), ("Subject Results", 0), ("Student Master", 0),
                              ("Validation Report", None), ("Config", None)):
             ws = self.sheets[name]
             ws.set_landscape()
@@ -289,23 +340,35 @@ class SchoolWorkbook:
         self.wb.define_name("GradeName", f"=Config!{rc(first, 1, True, True)}:{rc(r, 1, True, True)}")
         self.wb.define_name("GradeMin", f"=Config!{rc(first, 2, True, True)}:{rc(r, 2, True, True)}")
         r += 2
-        ws.write(r, 1, "Maximum marks (set on the website)", f.section())
+        ws.write(r, 1, "Maximum marks (settings on the website)", f.section())
         r += 1
-        heads = ["Subject", "Code", "Periodic test", "Big exam theory", "Big exam practical"]
+        heads = ["Class", "Subject", "Periodic test", "Big exams"]
         for c, h in enumerate(heads, 1):
             ws.write(r, c, h, f.header())
-        for s in self.subjects:
-            r += 1
-            pt = cfg.components(s, next(e for e, x in cfg.exams.items() if x["kind"] == "pt"))
-            mj = cfg.components(s, next(e for e, x in cfg.exams.items() if x["kind"] == "major"))
-            ws.write_string(r, 1, cfg.subject_name(s), f.cell())
-            ws.write_string(r, 2, s, f.cell(align="center"))
-            ws.write_number(r, 3, float(pt["theory"]), f.cell(align="center"))
-            ws.write_number(r, 4, float(mj["theory"]), f.cell(align="center"))
-            if "practical" in mj:
-                ws.write_number(r, 5, float(mj["practical"]), f.cell(align="center"))
-            else:
-                ws.write_string(r, 5, "-", f.cell(align="center", font_color=theme.MUTED))
+        ws.merge_range(r, 4, r, 6, "Big exams", f.header())
+
+        def txt(sc):
+            if not sc:
+                return "not counted"
+            t = f"{float(sc['theory']):g}"
+            if sc["second"]:
+                parts = sc["second"]["parts"]
+                t += f" + {float(sc['second']['max']):g} {sc['second']['label'].lower()}"
+                if parts:
+                    t += " (" + ", ".join(f"{cfg.part_label(k).lower()} {float(m):g}" for k, m in parts) + ")"
+                if sc["second"]["optional"]:
+                    t += " - optional"
+            return t
+        for cls in self.classes:
+            ex = self.ds.exams_for(cls) or cfg.class_exams(cls)
+            pt = next((e for e in ex if cfg.exam_kind(e) == "pt"), None)
+            mj = next((e for e in ex if cfg.exam_kind(e) == "major"), None)
+            for s in self.ds.subjects_for(cls):
+                r += 1
+                ws.write_string(r, 1, cfg.class_label(cls), f.cell())
+                ws.write_string(r, 2, cfg.subject_name(s), f.cell())
+                ws.write_string(r, 3, txt(cfg.scheme(cls, s, pt)) if pt else "-", f.cell(align="center"))
+                ws.merge_range(r, 4, r, 6, txt(cfg.scheme(cls, s, mj)) if mj else "-", f.cell())
         r += 2
         ws.write(r, 1, "Exams", f.section())
         r += 1
@@ -393,114 +456,150 @@ class SchoolWorkbook:
         self.wb.define_name("SM_Table", f"={_rng('Student Master', 1, 0, n, len(heads) - 1)}")
         self.sm_cols = {h: i for i, h in enumerate(heads)}
 
-    # ------------------------------------------------------------------ Matrix + Subject Results
+    # ------------------------------------------------------------------ marks sheets + Subject Results
+    def plan_entry_sheets(self):
+        """One marks sheet per class (and per subject combination in XI-XII), so every sheet only has
+        the subjects its students take. Subjects not shared by everybody (a language, an elective)
+        go into one 'Language' / 'Elective' column whose subject is named on each row."""
+        cfg, ds, res = self.cfg, self.ds, self.res
+        groups = {}
+        for k in self.order:
+            st = ds.students[k[0]]
+            groups.setdefault((st.cls, st.combo), []).append(k)
+        cls_rank = {c: i for i, c in enumerate(cfg.classes)}
+        specs = []
+        used_names = set(self.sheets) | {OV, "Dashboard", "Report Card", "Subject Analysis", "Marks Analysis", "Progress",
+                                         "Subject Results", "Student Master", "Validation Report", "Config", "Source Data",
+                                         "Teachers", "My Charts"}
+        for (cls, combo), keys in sorted(groups.items(), key=lambda x: (cls_rank.get(x[0][0], 99), x[0][1])):
+            sids = list(dict.fromkeys(k[0] for k in keys))
+            rows = [r for k in keys for r in res.exam_results[k].rows]
+            subjects = cfg.order_subjects({r.subject for r in rows})
+            core, slots, slot_of = _slot_plan(cfg, cls, [ds.students[s] for s in sids], subjects)
+            name = _sheet_name(f"Marks {cls or '(no class)'}" + (f" {COMBO_SHORT.get(combo, combo)}" if combo else ""),
+                               used_names)
+            used_names.add(name)
+            spec = {"name": name, "cls": cls, "combo": combo, "keys": keys, "core": core, "slots": slots, "slot_of": slot_of}
+            # which subject / slot needs a column for a typed second part (practical, or a single internal mark)
+            direct = set()
+            for r in rows:
+                if r.pr_max and not r.is_total and not r.parts:
+                    direct.add(r.subject)
+            spec["direct"] = direct
+            specs.append(spec)
+            # internal marks typed in parts -> a separate Internals sheet for this class (one per class)
+        int_specs = []
+        by_cls = {}
+        for k in self.order:
+            st = ds.students[k[0]]
+            if any(r.parts for r in res.exam_results[k].rows):
+                by_cls.setdefault(st.cls, []).append(k)
+        for cls in sorted(by_cls, key=lambda c: cls_rank.get(c, 99)):
+            keys = by_cls[cls]
+            sids = list(dict.fromkeys(k[0] for k in keys))
+            rows = [r for k in keys for r in res.exam_results[k].rows if r.parts]
+            subjects = cfg.order_subjects({r.subject for r in rows})
+            core, slots, slot_of = _slot_plan(cfg, cls, [ds.students[s] for s in sids], subjects)
+            # parts per subject (the scheme's order); one set of part columns per subject / slot
+            parts_of = {}
+            for r in rows:
+                keys_ = [kk for kk, _ in cfg.subparts(cls, r.subject, r.exam)]
+                parts_of.setdefault(r.subject, [])
+                for kk in keys_:
+                    if kk not in parts_of[r.subject]:
+                        parts_of[r.subject].append(kk)
+            name = _sheet_name(f"Internals {cls}", used_names)
+            used_names.add(name)
+            int_specs.append({"name": name, "cls": cls, "keys": keys, "core": core, "slots": slots, "parts_of": parts_of,
+                              "slot_of": slot_of})
+        self.entry_specs, self.int_specs = specs, int_specs
+        return [s["name"] for s in specs] + [s["name"] for s in int_specs]
+
     def write_matrix_and_results(self):
         cfg, ds, res, f = self.cfg, self.ds, self.res, self.f
-        mx, sr = self.sheets["Marks Matrix"], self.sheets["Subject Results"]
-        # matrix columns
-        mcols = []                   # (subject, component, heading)
-        for s in self.subjects:
-            if cfg.has_practical(s):
-                mcols.append((s, "theory", f"{cfg.subject_short(s)} Th"))
-                mcols.append((s, "practical", f"{cfg.subject_short(s)} Pr"))
-            else:
-                mcols.append((s, "theory", cfg.subject_short(s)))
-        base = 8
-        col_of = {(s, comp): base + i for i, (s, comp, _) in enumerate(mcols)}
-        c_obt = base + len(mcols)
-        c_max, c_ov, c_res, c_rank = c_obt + 1, c_obt + 2, c_obt + 3, c_obt + 4
+        ov, sr = self.sheets[OV], self.sheets["Subject Results"]
+        c_obt, c_max, c_ov, c_res, c_rank, c_sheet = 8, 9, 10, 11, 12, 13
         self.mx_cols = {"obt": c_obt, "max": c_max, "overall": c_ov, "result": c_res, "rank": c_rank}
-        last_col = c_rank
-        # banner + headers
-        self.banner(mx, "Marks Matrix",
-                    "One row per student per exam. Correct marks here (numbers, or AB / ML / DL / EX / NA) - "
-                    "everything else updates.", last_col, logo=False)
-        heads = ["Key", "Student ID", "Roll", "Name", "Class", "Section", "Group", "Exam"] + \
-                [h for _, _, h in mcols] + ["Total", "Max", "Overall %", "Result", "Class Rank"]
+        last_col = c_sheet
+        self.banner(ov, "Overview",
+                    "One row per student per exam: totals, overall %, result and rank. Type or correct marks in the "
+                    "'Marks ...' sheets - everything here updates.", last_col, logo=False)
+        heads = ["Key", "Student ID", "Roll", "Name", "Class", "Section", "Group", "Exam", "Total", "Max", "Overall %",
+                 "Result", "Class Rank", "Marks are in"]
         hr = MX_HEADER_ROW
-        mx.set_row(hr, 34)
+        ov.set_row(hr, 30)
         for c, h in enumerate(heads):
-            fmt = f.header()
-            if base <= c < c_obt:
-                s, comp, _ = mcols[c - base]
-                fmt = f.get(bold=True, font_color=theme.WHITE, bg_color=theme.BLUE if comp == "theory" else "#3E7CA6",
-                            align="center", text_wrap=True, border=1, border_color=theme.NAVY)
-                mx.write_comment(hr, c, f"{cfg.subject_name(s)} {comp}", {"x_scale": 1.2, "y_scale": 0.5})
-            mx.write(hr, c, h, fmt)
-        mx.set_column(0, 0, 18, None, {"hidden": True})
-        mx.set_column(1, 1, 9)
-        mx.set_column(2, 2, 5)
-        mx.set_column(3, 3, 22)
-        mx.set_column(4, 6, 6.5)
-        mx.set_column(7, 7, 13)
-        mx.set_column(base, c_obt - 1, 6.5)
-        mx.set_column(c_obt, c_max, 7)
-        mx.set_column(c_ov, c_ov, 10)
-        mx.set_column(c_res, c_res, 11)
-        mx.set_column(c_rank, c_rank, 7)
-        mx.freeze_panes(MX_FIRST, 4)
+            ov.write(hr, c, h, f.header())
+        ov.set_column(0, 0, 18, None, {"hidden": True})
+        ov.set_column(1, 1, 9)
+        ov.set_column(2, 2, 5)
+        ov.set_column(3, 3, 24)
+        ov.set_column(4, 6, 6.5)
+        ov.set_column(7, 7, 14)
+        ov.set_column(c_obt, c_max, 7)
+        ov.set_column(c_ov, c_ov, 10)
+        ov.set_column(c_res, c_res, 11)
+        ov.set_column(c_rank, c_rank, 7)
+        ov.set_column(c_sheet, c_sheet, 20)
+        ov.freeze_panes(MX_FIRST, 4)
 
         # Subject Results header
         sr.freeze_panes(1, 3)
         sr.set_row(0, 30)
         for c, h in enumerate(SR_COLS):
             sr.write(0, c, h, f.header())
-        widths = [24, 9, 22, 6, 7, 6, 13, 6, 18, 7, 7, 8, 8, 10, 8, 6, 7, 6, 7, 9, 9, 9, 9, 14, 70, 8, 9]
+        widths = [24, 9, 22, 6, 7, 6, 13, 6, 18, 7, 7, 9, 9, 10, 8, 6, 7, 6, 7, 9, 9, 9, 9, 14, 70, 8, 9]
         for c, w in enumerate(widths):
             sr.set_column(c, c, w)
         sr.set_column(SR_KEY, SR_KEY, 24, None, {"hidden": True})
 
-        # how many SR rows (needed for named ranges used inside formulas)
         n_sr = sum(len(res.exam_results[k].rows) for k in self.order)
         self.n_sr = n_sr
-        sr_last = n_sr  # rows 1..n_sr
         S = "Subject Results"
         for name, c in [("SR_Key", SR_KEY), ("SR_ID", SR_ID), ("SR_Class", SR_CLASS), ("SR_Section", SR_SEC),
                         ("SR_Group", SR_GROUP), ("SR_Exam", SR_EXAM), ("SR_Subject", SR_SUBJ), ("SR_Th", SR_TH),
                         ("SR_Pr", SR_PR), ("SR_Status", SR_STATUS), ("SR_Obt", SR_OBT), ("SR_Max", SR_MAX),
                         ("SR_Pct", SR_PCT), ("SR_Grade", SR_GRADE), ("SR_Passed", SR_PASSED), ("SR_Label", SR_LABEL),
-                        ("SR_ClassAvg", SR_CAVG), ("SR_Reason", SR_REASON), ("SR_ThPct", SR_THP), ("SR_PrPct", SR_PRP)]:
-            self.wb.define_name(name, f"={_rng(S, 1, c, max(1, sr_last))}")
+                        ("SR_ClassAvg", SR_CAVG), ("SR_Reason", SR_REASON), ("SR_ThPct", SR_THP), ("SR_PrPct", SR_PRP),
+                        ("SR_VOwn", SR_VOWN)]:
+            self.wb.define_name(name, f"={_rng(S, 1, c, max(1, n_sr))}")
         n_mx = len(self.order)
         self.n_mx = n_mx
-        M = "Marks Matrix"
         for name, c in [("MX_Key", 0), ("MX_ID", 1), ("MX_Name", 3), ("MX_Class", 4), ("MX_Section", 5),
                         ("MX_Group", 6), ("MX_Exam", 7), ("MX_Obt", c_obt), ("MX_Max", c_max), ("MX_Overall", c_ov),
                         ("MX_Result", c_res), ("MX_Rank", c_rank)]:
-            self.wb.define_name(name, f"={_rng(M, MX_FIRST, c, MX_FIRST + max(1, n_mx) - 1)}")
+            self.wb.define_name(name, f"={_rng(OV, MX_FIRST, c, MX_FIRST + max(1, n_mx) - 1)}")
 
-        # stats rows index (written later) so SR can reference class averages directly
+        # class averages are on the hidden _stats sheet; index them so SR rows can point at them
         self.stats_index = {}
-        keys = sorted(res.class_avg.keys(), key=lambda k: (self.classes.index(k[0]) if k[0] in self.classes else 9,
+        keys = sorted(res.class_avg.keys(), key=lambda k: (self.classes.index(k[0]) if k[0] in self.classes else 99,
                                                             cfg.exam_order(k[0], k[1]), self.subjects.index(k[2])
                                                             if k[2] in self.subjects else 99))
         for i, k in enumerate(keys):
             self.stats_index[k] = i + 1
         self.stats_keys = keys
 
-        # formats
-        cell_c = f.cell(align="center")
-        band_c = f.cell(align="center", bg_color=theme.TINT2)
-        na_fmt = f.cell(bg_color=theme.GREY_BG)
-        bad_fmt = f.cell(align="center", bg_color=theme.RED_BG, font_color=theme.RED, bold=True)
-        code_fmt = f.cell(align="center", font_color=theme.AMBER, bold=True)
-        pct_fmt = f.num(1)
-        txt = f.cell()
-        validations = {}             # (col, max) -> list of rows
+        self.mx_row_of = {k: MX_FIRST + i for i, k in enumerate(self.order)}
+        self.sr_row_of = {}
+        self.cells = []              # [sheet, row, col, sid, exam, subject, component] of every typed mark
+        self.validations = {}        # (sheet, col, max) -> rows
+        refs = {}                    # (sid, exam, subject) -> {"th": ref, "pr": ref}
+        sheet_of = {}
+        for spec in self.entry_specs:
+            self.write_entry_sheet(spec, refs)
+            for k in spec["keys"]:
+                sheet_of[k] = spec["name"]
+        for spec in self.int_specs:
+            self.write_internals_sheet(spec, refs)
 
-        sr_row = 1
-        block_start = {}
+        # Overview rows + Subject Results rows
+        cell_c = f.cell(align="center")
+        txt = f.cell()
         ce_first = {}
-        # first pass: matrix row positions per class/exam block (for rank ranges)
         for i, k in enumerate(self.order):
             st = ds.students[k[0]]
             ce_first.setdefault((st.cls, k[1]), [i, i])[1] = i
-        mx_row_of = {}
-        for i, k in enumerate(self.order):
-            mx_row_of[k] = MX_FIRST + i
-        self.mx_row_of = mx_row_of
-        self.sr_row_of = {}
-
+        sr_row = 1
         for i, k in enumerate(self.order):
             sid, exam = k
             st = ds.students[sid]
@@ -508,68 +607,40 @@ class SchoolWorkbook:
             r = MX_FIRST + i
             band = i % 2 == 1
             ex_name = cfg.exam_name(exam)
-            idf = band_c if band else cell_c
-            mx.write_string(r, 0, f"{sid}|{ex_name}", txt)
-            for c, v in [(1, sid), (2, st.roll), (3, st.name), (4, st.cls), (5, st.section), (6, st.group),
-                         (7, ex_name)]:
+            ov.write_string(r, 0, f"{sid}|{ex_name}", txt)
+            for c, v in [(1, sid), (2, st.roll), (3, st.name), (4, st.cls), (5, st.section), (6, st.group), (7, ex_name)]:
                 fmt = f.cell(bg_color=theme.TINT2, quote_prefix=formula_like(v)) if band else \
                     f.cell(quote_prefix=formula_like(v))
-                mx.write_string(r, c, str(v), fmt)
-            rows_here = {(row.subject): row for row in er.rows}
-            # entry cells
-            for (s, comp, _h), c in zip(mcols, range(base, c_obt)):
-                row = rows_here.get(s)
-                comps = cfg.components(s, exam) if exam in cfg.exams else {}
-                if row is None or (comp == "practical" and (row.is_total or not row.pr_max)):
-                    mx.write_blank(r, c, None, na_fmt)
-                    continue
-                if comp == "theory":
-                    kind, value, raw = row.th_kind, row.th, row.th_raw
-                    mxv = row.th_max
-                else:
-                    kind, value, raw = row.pr_kind, row.pr, row.pr_raw
-                    mxv = row.pr_max
-                fmt = band_c if band else cell_c
-                if kind == "number":
-                    mx.write_number(r, c, float(value), fmt)
-                elif kind == "leave":
-                    mx.write_string(r, c, next(m.code for m in row.marks if m.component in (comp, "total")), code_fmt)
-                elif kind == "invalid":
-                    mx.write_string(r, c, f"{raw} ⚠", bad_fmt)
-                else:
-                    mx.write_blank(r, c, None, fmt)
-                if row.is_total:
-                    mx.write_comment(r, c, "Total out of 100 (theory and practical were not given separately).")
-                validations.setdefault((c, int(mxv)), []).append(r)
-            # Subject Results rows for this student-exam
+                ov.write_string(r, c, str(v), fmt)
             first = sr_row
             last = sr_row + len(er.rows) - 1
             for row in er.rows:
                 self.sr_row_of[(sid, exam, row.subject)] = sr_row
-                self.write_sr_row(sr, sr_row, row, st, ex_name, r, col_of, first, last)
+                self.write_sr_row(sr, sr_row, row, st, ex_name, i, refs.get((sid, exam, row.subject), {}), first, last)
                 sr_row += 1
-            # totals in matrix
             stat = _rng(S, first, SR_STATUS, last).replace("$", "")
             obt = _rng(S, first, SR_OBT, last).replace("$", "")
             mxr = _rng(S, first, SR_MAX, last).replace("$", "")
             pas = _rng(S, first, SR_PASSED, last).replace("$", "")
-            mx.write_formula(r, c_obt, f'=IF(COUNTIF({stat},"OK")=0,"",SUMIF({stat},"OK",{obt}))',
-                             f.num(1 if er.obtained is not None and er.obtained % 1 else 0, bold=True),
-                             _num(er.obtained))
-            mx.write_formula(r, c_max, f'=IF(COUNTIF({stat},"OK")=0,"",SUMIF({stat},"OK",{mxr}))',
-                             f.num(0), _num(er.max))
+            ov.write_formula(r, c_obt, f'=IF(COUNTIF({stat},"OK")=0,"",SUMIF({stat},"OK",{obt}))',
+                             f.num(2 if er.obtained is not None and er.obtained % 1 else 0, bold=True), _num(er.obtained))
+            ov.write_formula(r, c_max, f'=IF(COUNTIF({stat},"OK")=0,"",SUMIF({stat},"OK",{mxr}))', f.num(0), _num(er.max))
             o, m_ = rc(r, c_obt), rc(r, c_max)
-            mx.write_formula(r, c_ov, f'=IF(N({m_})=0,"",ROUND({o}/{m_}*100,6))',
+            ov.write_formula(r, c_ov, f'=IF(N({m_})=0,"",ROUND({o}/{m_}*100,6))',
                              f.num(2, bold=True, font_color=theme.NAVY), _num(er.overall))
-            mx.write_formula(r, c_res, f'=IF(COUNTIF({pas},"No")>0,"Not passed",IF(COUNTIF({stat},"OK")>0,"Pass",""))',
-                             f.cell(align="center"), er.result)
+            ov.write_formula(r, c_res, f'=IF(COUNTIF({pas},"No")>0,"Not passed",IF(COUNTIF({stat},"OK")>0,"Pass",""))',
+                             cell_c, er.result)
             a, b = ce_first[(st.cls, exam)]
-            ov = rc(r, c_ov)
+            ovc = rc(r, c_ov)
             blockr = f"{rc(MX_FIRST + a, c_ov, True, True)}:{rc(MX_FIRST + b, c_ov, True, True)}"
-            mx.write_formula(r, c_rank, f'=IF({ov}="","",COUNTIF({blockr},">"&{ov})+1)', f.cell(align="center"),
+            ov.write_formula(r, c_rank, f'=IF({ovc}="","",COUNTIF({blockr},">"&{ovc})+1)', cell_c,
                              er.rank if er.rank is not None else "")
+            sh = sheet_of.get(k, "")
+            if sh:
+                ov.write_url(r, c_sheet, f"internal:{_q(sh)}!A1", f.cell(font_color=theme.BLUE, underline=1), sh)
         # entry validation: number 0..max or a leave code
-        for (c, mxv), rows in validations.items():
+        for (sheet, c, mxv), rows in self.validations.items():
+            ws = self.sheets[sheet]
             rows.sort()
             runs = []
             for rr in rows:
@@ -579,22 +650,17 @@ class SchoolWorkbook:
                     runs.append([rr, rr])
             for a, b in runs:
                 top = rc(a, c)
-                rule = (f"=OR(AND(ISNUMBER({top}),{top}>=0,{top}<={mxv}),"
-                        f"COUNTIF(LeaveCodes,{top})>0)")
-                mx.data_validation(a, c, b, c, {
-                    "validate": "custom", "value": rule, "ignore_blank": True,
-                    "error_title": "Check this mark",
+                ws.data_validation(a, c, b, c, {
+                    "validate": "custom", "value": f"=OR(AND(ISNUMBER({top}),{top}>=0,{top}<={mxv}),COUNTIF(LeaveCodes,{top})>0)",
+                    "ignore_blank": True, "error_title": "Check this mark",
                     "error_message": f"Type a number from 0 to {mxv}, or a leave code (AB, ML, DL, EX, NA).",
                     "input_title": "Marks", "input_message": f"Out of {mxv}, or AB / ML / DL / EX / NA"})
         last_r = MX_FIRST + max(1, n_mx) - 1
-        mx.autofilter(MX_HEADER_ROW, 0, last_r, last_col)
-        mx.conditional_format(MX_FIRST, c_ov, last_r, c_ov, {"type": "data_bar", "bar_color": "#9FDCF5",
-                                                            "bar_solid": True, "min_type": "num", "min_value": 0,
-                                                            "max_type": "num", "max_value": 100})
-        mx.conditional_format(MX_FIRST, c_res, last_r, c_res, {"type": "cell", "criteria": "==",
-                                                              "value": '"Not passed"',
+        ov.autofilter(MX_HEADER_ROW, 0, last_r, last_col)
+        ov.conditional_format(MX_FIRST, c_ov, last_r, c_ov, {"type": "data_bar", "bar_color": "#9FDCF5", "bar_solid": True,
+                                                            "min_type": "num", "min_value": 0, "max_type": "num", "max_value": 100})
+        ov.conditional_format(MX_FIRST, c_res, last_r, c_res, {"type": "cell", "criteria": "==", "value": '"Not passed"',
                                                               "format": f.get(font_color=theme.RED, bold=True)})
-        # Subject Results formatting
         sl = max(1, n_sr)
         sr.autofilter(0, 0, sl, len(SR_COLS) - 1)
         for label, (fg, bg) in theme.LABEL_COLORS.items():
@@ -603,16 +669,283 @@ class SchoolWorkbook:
             sr.conditional_format(1, SR_LABEL, sl, SR_LABEL, {"type": "cell", "criteria": "==", "value": f'"{label}"',
                                                               "format": self.wb.add_format({"font_color": fg, "bg_color": bg,
                                                                                             "bold": True})})
-        self.mcols, self.col_of = mcols, col_of
 
-    def write_sr_row(self, sr, r, row, st, ex_name, mrow, col_of, first, last):
+    # ---- one marks sheet --------------------------------------------------------------------------
+    def _mark_cell(self, ws, sheet, r, c, kind, value, raw, code, mx, fmt, sid, exam, subject, comp, total_note=False):
+        f = self.f
+        if kind == "number":
+            ws.write_number(r, c, float(value), fmt)
+        elif kind == "leave":
+            ws.write_string(r, c, code, f.cell(align="center", font_color=theme.AMBER, bold=True))
+        elif kind == "invalid":
+            ws.write_string(r, c, f"{raw} ⚠", f.cell(align="center", bg_color=theme.RED_BG, font_color=theme.RED, bold=True))
+        else:
+            ws.write_blank(r, c, None, fmt)
+        if total_note:
+            ws.write_comment(r, c, "Total (both parts were not given separately).")
+        self.validations.setdefault((sheet, c, float(mx) if float(mx) % 1 else int(mx)), []).append(r)
+        self.cells.append([sheet, r, c, sid, exam, subject, comp])
+        return f"{_q(sheet)}!{rc(r, c)}"
+
+    def write_entry_sheet(self, spec, refs):
+        cfg, ds, res, f = self.cfg, self.ds, self.res, self.f
+        name = spec["name"]
+        ws = self.sheets[name]
+        cls = spec["cls"]
+        streams = cfg.has_streams(cls)
+        # columns: (kind, subject or slot index, component, heading)
+        cols = []
+        for s in spec["core"]:
+            if s in spec["direct"]:
+                lab = cfg.second_label(cls, s, next((k[1] for k in spec["keys"] if cfg.exam_kind(k[1]) == "major"), "HY")) or "Practical"
+                cols.append(("mark", s, "theory", f"{cfg.subject_short(s)} {'Th' if streams else 'W'}"))
+                cols.append(("mark", s, "practical", f"{cfg.subject_short(s)} {'Pr' if lab == 'Practical' else 'Int'}"))
+            else:
+                cols.append(("mark", s, "theory", cfg.subject_short(s)))
+        for i, slot in enumerate(spec["slots"]):
+            cols.append(("slotname", i, None, slot["title"]))
+            if slot["subjects"] & spec["direct"]:
+                cols.append(("slot", i, "theory", f"{slot['short']} {'Th' if streams else 'W'}"))
+                cols.append(("slot", i, "practical", f"{slot['short']} {'Pr' if streams else 'Int'}"))
+            else:
+                cols.append(("slot", i, "theory", f"{slot['short']} marks"))
+        base = 6
+        c_ov = base + len(cols)
+        c_res = c_ov + 1
+        self.banner(ws, name, f"{cfg.class_label(cls)}{' · ' + spec['combo'] if spec['combo'] else ''}: one row per "
+                              f"student per exam. Type or correct marks here (numbers, or AB / ML / DL / EX / NA) - "
+                              f"everything else updates. Grey = not part of this exam.", c_res, logo=False)
+        heads = ["Key", "Student ID", "Roll", "Name", "Section", "Exam"] + [h for _, _, _, h in cols] + ["Overall %", "Result"]
+        hr = MX_HEADER_ROW
+        ws.set_row(hr, 34)
+        for c, h in enumerate(heads):
+            fmt = f.header()
+            if base <= c < c_ov:
+                kind, s, comp, _ = cols[c - base]
+                fmt = f.get(bold=True, font_color=theme.WHITE, align="center", text_wrap=True, border=1,
+                            border_color=theme.NAVY, bg_color=theme.BLUE if comp in ("theory", None) and kind != "slotname"
+                            else ("#5B7A93" if kind == "slotname" else "#3E7CA6"))
+                if kind == "mark":
+                    ws.write_comment(hr, c, f"{cfg.subject_name(s)} - {'written' if comp == 'theory' and not streams else comp}",
+                                     {"x_scale": 1.2, "y_scale": 0.5})
+                elif kind == "slotname":
+                    ws.write_comment(hr, c, "Each student's own " + spec["slots"][s]["title"].lower() +
+                                     " (the marks next to it are in this subject)", {"x_scale": 1.6, "y_scale": 0.6})
+            ws.write(hr, c, h, fmt)
+        ws.set_column(0, 0, 18, None, {"hidden": True})
+        ws.set_column(1, 1, 9)
+        ws.set_column(2, 2, 5)
+        ws.set_column(3, 3, 24)
+        ws.set_column(4, 4, 7)
+        ws.set_column(5, 5, 14)
+        for i, (kind, s, comp, h) in enumerate(cols):
+            ws.set_column(base + i, base + i, 11 if kind == "slotname" else 7)
+        ws.set_column(c_ov, c_ov, 10)
+        ws.set_column(c_res, c_res, 11)
+        ws.freeze_panes(MX_FIRST, 4)
+        na_fmt = f.cell(bg_color=theme.GREY_BG)
+        for i, k in enumerate(spec["keys"]):
+            sid, exam = k
+            st = ds.students[sid]
+            er = res.exam_results[k]
+            r = MX_FIRST + i
+            band = i % 2 == 1
+            idf = f.cell(bg_color=theme.TINT2) if band else f.cell()
+            ex_name = cfg.exam_name(exam)
+            ws.write_string(r, 0, f"{sid}|{ex_name}", idf)
+            for c, v in [(1, sid), (2, st.roll), (3, st.name), (4, st.section), (5, ex_name)]:
+                ws.write_string(r, c, str(v), f.cell(quote_prefix=formula_like(v), **({"bg_color": theme.TINT2} if band else {})))
+            by = {row.subject: row for row in er.rows}
+            slot_subj = {i2: next((x for x in st.subjects if x in sl["subjects"] and x not in spec["core"]
+                                   and _slot_index(spec, st, x) == i2), None) for i2, sl in enumerate(spec["slots"])}
+            cfmt = f.cell(align="center", bg_color=theme.TINT2) if band else f.cell(align="center")
+            for j, (kind, s, comp, h) in enumerate(cols):
+                c = base + j
+                if kind == "slotname":
+                    sub = slot_subj.get(s)
+                    ws.write_string(r, c, cfg.subject_name(sub) if sub else "", f.cell(font_color="#5B7A93", italic=True,
+                                                                                    **({"bg_color": theme.TINT2} if band else {})))
+                    continue
+                subject = s if kind == "mark" else slot_subj.get(s)
+                row = by.get(subject) if subject else None
+                if row is None or (comp == "practical" and (row.is_total or not row.pr_max or row.parts)):
+                    ws.write_blank(r, c, None, na_fmt)
+                    continue
+                if comp == "theory":
+                    m = next((x for x in row.marks if x.component in ("theory", "total")), None)
+                    ref = self._mark_cell(ws, name, r, c, row.th_kind, row.th, row.th_raw, m.code if m else "",
+                                          row.th_max, cfmt, sid, exam, subject, "total" if row.is_total else "theory",
+                                          total_note=row.is_total)
+                    refs.setdefault((sid, exam, subject), {})["th"] = ref
+                else:
+                    m = next((x for x in row.marks if x.component == "practical"), None)
+                    ref = self._mark_cell(ws, name, r, c, row.pr_kind, row.pr, row.pr_raw, m.code if m else "",
+                                          row.pr_max, cfmt, sid, exam, subject, "practical")
+                    refs.setdefault((sid, exam, subject), {})["pr"] = ref
+            orow = self.mx_row_of[k]
+            ws.write_formula(r, c_ov, f"={_q(OV)}!{rc(orow, self.mx_cols['overall'])}",
+                             f.num(2, bold=True, font_color=theme.NAVY, **({"bg_color": theme.TINT2} if band else {})),
+                             _num(er.overall))
+            ws.write_formula(r, c_res, f"={_q(OV)}!{rc(orow, self.mx_cols['result'])}",
+                             f.cell(align="center", **({"bg_color": theme.TINT2} if band else {})), er.result)
+        last_r = MX_FIRST + max(1, len(spec["keys"])) - 1
+        ws.autofilter(MX_HEADER_ROW, 0, last_r, c_res)
+        ws.conditional_format(MX_FIRST, c_res, last_r, c_res, {"type": "cell", "criteria": "==", "value": '"Not passed"',
+                                                              "format": f.get(font_color=theme.RED, bold=True)})
+        ws.set_landscape()
+        ws.set_paper(9)
+        ws.fit_to_pages(1, 0)
+        ws.repeat_rows(MX_HEADER_ROW)
+
+    def write_internals_sheet(self, spec, refs):
+        """Internal assessment typed in parts (portfolio / project / notebook, AI practical parts). The PT part is a
+        formula from the periodic test on the marks sheet; 'Total' adds the parts (or says what is missing)."""
+        cfg, ds, res, f = self.cfg, self.ds, self.res, self.f
+        name = spec["name"]
+        ws = self.sheets[name]
+        cls = spec["cls"]
+        groups = []                  # (title, kind, subject or slot index, [part keys])
+        for s in spec["core"]:
+            if spec["parts_of"].get(s):
+                groups.append((cfg.subject_short(s), "mark", s, spec["parts_of"][s]))
+        for i, slot in enumerate(spec["slots"]):
+            keys = []
+            for s in slot["subjects"]:
+                for kk in spec["parts_of"].get(s, []):
+                    if kk not in keys:
+                        keys.append(kk)
+            groups.append((slot["short"], "slot", i, keys))
+        base = 6
+        cols = []                    # (group index, part key | 'slotname' | 'total')
+        for gi, (title, kind, s, keys) in enumerate(groups):
+            if kind == "slot":
+                cols.append((gi, "slotname"))
+            for kk in keys:
+                cols.append((gi, kk))
+            cols.append((gi, "total"))
+        self.banner(ws, name, f"{cfg.class_label(cls)}: internal assessment (and AI practical) in parts. Type the "
+                              f"parts; the PT part comes from the periodic test by itself, and Total adds them up "
+                              f"(INC = a part is missing).", base + len(cols), logo=False)
+        hr = MX_HEADER_ROW + 1          # subject names on the row above the part names
+        ws.set_row(hr - 1, 18)
+        ws.set_row(hr, 32)
+        for c, h in enumerate(["Key", "Student ID", "Roll", "Name", "Section", "Exam"]):
+            ws.write(hr, c, h, f.header())
+        # subject names over their parts
+        gi_cols = {}
+        for j, (gi, kk) in enumerate(cols):
+            gi_cols.setdefault(gi, []).append(base + j)
+        for gi, cs in gi_cols.items():
+            fmt = f.get(bold=True, font_color=theme.WHITE, bg_color=theme.BLUE if gi % 2 == 0 else theme.NAVY,
+                        align="center", border=1, border_color=theme.NAVY)
+            if len(cs) > 1:
+                ws.merge_range(hr - 1, cs[0], hr - 1, cs[-1], groups[gi][0], fmt)
+            else:
+                ws.write(hr - 1, cs[0], groups[gi][0], fmt)
+        short = {"i_pt": "PT", "i_portfolio": "Portfolio", "i_project": "Project", "i_notebook": "Notebook",
+                 "p_viva": "Viva", "p_notebook": "Notebook", "p_file": "File", "p_test": "Test"}
+        for j, (gi, kk) in enumerate(cols):
+            c = base + j
+            h = {"slotname": groups[gi][0], "total": "Total"}.get(kk, short.get(kk, cfg.part_label(kk)))
+            ws.write(hr, c, h, f.header() if kk not in ("total", "i_pt") else
+                     f.get(bold=True, font_color=theme.WHITE, bg_color="#5B7A93", align="center", text_wrap=True, border=1,
+                           border_color=theme.NAVY))
+            if kk == "i_pt":
+                ws.write_comment(hr, c, "Worked out from the periodic test: PT marks ÷ PT maximum × 5 (absent = 0).",
+                                 {"x_scale": 1.6, "y_scale": 0.6})
+            ws.set_column(c, c, 11 if kk == "slotname" else (7 if kk == "total" else 8.5))
+        ws.set_column(0, 0, 18, None, {"hidden": True})
+        ws.set_column(1, 1, 9)
+        ws.set_column(2, 2, 5)
+        ws.set_column(3, 3, 24)
+        ws.set_column(4, 4, 7)
+        ws.set_column(5, 5, 14)
+        ws.freeze_panes(hr + 1, 4)
+        na_fmt = f.cell(bg_color=theme.GREY_BG)
+        r = hr
+        for k in spec["keys"]:
+            sid, exam = k
+            st = ds.students[sid]
+            er = res.exam_results[k]
+            r += 1
+            band = (r - hr - 1) % 2 == 1
+            bg = {"bg_color": theme.TINT2} if band else {}
+            ex_name = cfg.exam_name(exam)
+            ws.write_string(r, 0, f"{sid}|{ex_name}", f.cell(**bg))
+            for c, v in [(1, sid), (2, st.roll), (3, st.name), (4, st.section), (5, ex_name)]:
+                ws.write_string(r, c, str(v), f.cell(quote_prefix=formula_like(v), **bg))
+            by = {row.subject: row for row in er.rows}
+            cfmt = f.cell(align="center", **bg)
+            for gi, (title, kind, s, keys) in enumerate(groups):
+                cs = gi_cols[gi]
+                if kind == "slot":
+                    subject = next((x for x in st.subjects if x in spec["slots"][s]["subjects"] and x not in spec["core"]
+                                    and _slot_index(spec, st, x) == s), None)
+                else:
+                    subject = s
+                row = by.get(subject) if subject else None
+                j0 = 0
+                if kind == "slot":
+                    ws.write_string(r, cs[0], cfg.subject_name(subject) if subject else "",
+                                    f.cell(font_color="#5B7A93", italic=True, **bg))
+                    j0 = 1
+                if row is None or not row.parts:
+                    for c in cs[j0:]:
+                        ws.write_blank(r, c, None, na_fmt)
+                    continue
+                part_refs, entered = [], []
+                scheme_keys = dict(cfg.subparts(cls, subject, exam))
+                for kk, c in zip(keys, cs[j0:-1]):
+                    if kk not in scheme_keys:
+                        ws.write_blank(r, c, None, na_fmt)
+                        continue
+                    cell = rc(r, c)
+                    if kk == "i_pt" and kk not in {m.component for m in row.marks}:
+                        val = row.parts.get(kk, (None, None))[0]
+                        pt_ref = refs.get((sid, row.pt_from, subject), {}).get("th")
+                        pt_row = res.exam_results.get((sid, row.pt_from))
+                        pt_r = next((x for x in pt_row.rows if x.subject == subject), None) if pt_row else None
+                        if pt_ref and pt_r is not None:
+                            full = pt_r.th_max
+                            pm = scheme_keys[kk]
+                            ws.write_formula(r, c, f'=IF(ISNUMBER({pt_ref}),{pt_ref}/{_n(full)}*{_n(pm)},'
+                                                   f'IF(OR({pt_ref}="",AND(ISTEXT({pt_ref}),COUNTIF(LeaveCodes,{pt_ref})>0)),0,"⚠"))',
+                                             f.num(2, font_color="#5B7A93", **bg),
+                                             float(val) if val is not None else "⚠")
+                        else:
+                            ws.write_blank(r, c, None, f.cell(**bg))
+                        part_refs.append((cell, True))
+                        continue
+                    m = next((x for x in row.marks if x.component == kk), None)
+                    self._mark_cell(ws, name, r, c, m.kind if m else "blank", m.value if m else None, m.raw if m else "",
+                                    m.code if m else "", scheme_keys[kk], cfmt, sid, exam, subject, kk)
+                    part_refs.append((cell, False))
+                    entered.append(cell)
+                # Total = the parts combined, exactly like calc.combine
+                allnum = ",".join(f"ISNUMBER({p})" for p, _ in part_refs)
+                summ = "+".join(p for p, _ in part_refs)
+                blank = ",".join(f'{p}=""' for p in entered) or "FALSE"
+                leave = "".join(f'IF(AND(ISTEXT({p}),COUNTIF(LeaveCodes,{p})>0),UPPER({p}),' for p, d in part_refs if not d)
+                close = ")" * sum(1 for p, d in part_refs if not d)
+                bad = ",".join(f'AND(ISTEXT({p}),{p}<>"")' for p, _ in part_refs)
+                formula = (f'=IF(AND({allnum}),{summ},IF(AND({blank}),"",{leave}IF(OR({bad}),"⚠","INC"){close}))')
+                cached = {"number": _num(row.pr), "blank": "", "leave": row.pr_code, "invalid": "⚠",
+                          "partial": "INC"}[row.pr_kind]
+                tc = cs[-1]
+                ws.write_formula(r, tc, formula, f.num(2, bold=True, font_color=theme.NAVY, **bg), cached)
+                refs.setdefault((sid, exam, subject), {})["pr"] = f"{_q(name)}!{rc(r, tc)}"
+        ws.set_landscape()
+        ws.set_paper(9)
+        ws.fit_to_pages(1, 0)
+        ws.repeat_rows(hr - 1, hr)
+
+    def write_sr_row(self, sr, r, row, st, ex_name, band_i, refs, first, last):
         f, cfg = self.f, self.cfg
-        M = "Marks Matrix"
         c = rc
-        band = {"bg_color": theme.TINT2} if (mrow - MX_FIRST) % 2 else {}
+        band = {"bg_color": theme.TINT2} if band_i % 2 else {}
         tf = f.cell(**band)
         cf = f.cell(align="center", **band)
-        n1, n2 = f.num(1, **band), f.num(2, **band)
+        n1, n2 = f.num(2, **band), f.num(2, **band)
         subj = cfg.subject_name(row.subject)
         sr.write_string(r, SR_KEY, f"{st.sid}|{ex_name}|{subj}", tf)
         sr.write_string(r, SR_ID, st.sid, tf)
@@ -623,18 +956,26 @@ class SchoolWorkbook:
         sr.write_string(r, SR_EXAM, ex_name, tf)
         sr.write_number(r, SR_EXNO, cfg.exam_order(st.cls, row.exam), cf)
         sr.write_string(r, SR_SUBJ, subj, tf)
-        # theory / practical pulled from the matrix
-        thc = f"{_q(M)}!{c(mrow, col_of[(row.subject, 'theory')])}"
+        thc = refs.get("th")
         th_val = float(row.th) if row.th is not None else ("" if row.th_kind == "blank" else
-                                                            (row.marks[0].code if row.th_kind == "leave" else f"{row.th_raw} ⚠"))
-        sr.write_formula(r, SR_TH, f'=IF(ISBLANK({thc}),"",{thc})', cf, th_val)
+                                                            (next((m.code for m in row.marks if m.component in ("theory", "total")), "")
+                                                             if row.th_kind == "leave" else f"{row.th_raw} ⚠"))
+        if thc:
+            sr.write_formula(r, SR_TH, f'=IF(ISBLANK({thc}),"",{thc})', cf, th_val)
+        else:
+            sr.write_string(r, SR_TH, "", cf)
         sr.write_number(r, SR_THMAX, float(row.th_max), cf)
         if row.pr_max:
-            prc = f"{_q(M)}!{c(mrow, col_of[(row.subject, 'practical')])}"
-            pm = next((m for m in row.marks if m.component == "practical"), None)
-            pr_val = float(row.pr) if row.pr is not None else ("" if row.pr_kind == "blank" else
-                                                                (pm.code if row.pr_kind == "leave" else f"{row.pr_raw} ⚠"))
-            sr.write_formula(r, SR_PR, f'=IF(ISBLANK({prc}),"",{prc})', cf, pr_val)
+            prc = refs.get("pr")
+            if row.parts:
+                pr_val = {"number": _num(row.pr), "blank": "", "leave": row.pr_code, "invalid": "⚠", "partial": "INC"}[row.pr_kind]
+            else:
+                pr_val = float(row.pr) if row.pr is not None else ("" if row.pr_kind == "blank" else
+                                                                    (row.pr_code if row.pr_kind == "leave" else f"{row.pr_raw} ⚠"))
+            if prc:
+                sr.write_formula(r, SR_PR, f'=IF(ISBLANK({prc}),"",{prc})', cf, pr_val)
+            else:
+                sr.write_string(r, SR_PR, "", cf)
         else:
             sr.write_string(r, SR_PR, "", cf)
         sr.write_number(r, SR_PRMAX, float(row.pr_max), cf)
@@ -647,10 +988,10 @@ class SchoolWorkbook:
                          f'IF(AND({J}="",OR({Mx}=0,{L}="")),BlankMeans,'
                          f'IF(AND(ISTEXT({J}),{J}<>"",COUNTIF(LeaveCodes,{J})>0),UPPER({J}),'
                          f'IF(AND({Mx}>0,ISTEXT({L}),{L}<>"",COUNTIF(LeaveCodes,{L})>0),UPPER({L}),'
-                         f'IF(OR(AND(ISTEXT({J}),{J}<>""),AND({Mx}>0,ISTEXT({L}),{L}<>"")),"INVALID","INCOMPLETE")))))',
+                         f'IF(OR(AND(ISTEXT({J}),{J}<>""),AND({Mx}>0,ISTEXT({L}),{L}<>"",{L}<>"INC")),"INVALID","INCOMPLETE")))))',
                          cf, row.status)
-        sr.write_formula(r, SR_OBT, f'=IF({N}="OK",{J}+IF({Mx}=0,0,{L}),"")', n1 if row.obtained is not None and row.obtained % 1 else cf,
-                         _num(row.obtained))
+        sr.write_formula(r, SR_OBT, f'=IF({N}="OK",{J}+IF({Mx}=0,0,{L}),"")',
+                         n1 if row.obtained is not None and row.obtained % 1 else cf, _num(row.obtained))
         sr.write_formula(r, SR_MAX, f"={K}+{Mx}", cf, float(row.max))
         sr.write_formula(r, SR_PCT, f'=IF({N}="OK",{O}/{P}*100,"")', n2, _num(row.pct))
         sr.write_formula(r, SR_GRADE, f'=IF({Q}="","",LOOKUP(ROUND({Q},6),GradeMin,GradeName))', cf, row.grade or "")
@@ -660,15 +1001,17 @@ class SchoolWorkbook:
                          f'IF(IFERROR(VLOOKUP({N},LeaveTable,3,FALSE),"No")="Yes","No",""))', cf, row.passed or "")
         blk = f"{c(first, SR_STATUS, True, False)}:{c(last, SR_STATUS, True, False)}"
         blkq = f"{c(first, SR_PCT, True, False)}:{c(last, SR_PCT, True, False)}"
+        blkp = f"{c(first, SR_PASSED, True, False)}:{c(last, SR_PASSED, True, False)}"
         sr.write_formula(r, SR_OWN, f'=IF({N}="OK",AVERAGEIF({blk},"OK",{blkq}),"")', n2, _num(row.own_avg))
         si = self.stats_index.get((st.cls, row.exam, row.subject))
         sr.write_formula(r, SR_CAVG, f"=_stats!{c(si, 3)}" if si else '=""', n2, _num(row.class_avg))
         sr.write_formula(r, SR_VOWN, f'=IF({N}="OK",{Q}-{T},"")', n2, _num(row.vs_own))
         sr.write_formula(r, SR_VCLS, f'=IF(AND({N}="OK",ISNUMBER({U})),{Q}-{U},"")', n2, _num(row.vs_class))
+        # below the pass mark somewhere in this exam -> only the subjects below the pass mark are "Needs attention"
         sr.write_formula(r, SR_LABEL,
                          f'=IF({N}<>"OK",IF({N}="INVALID","Check marks",IF({N}="INCOMPLETE","Incomplete",'
                          f'IFERROR(VLOOKUP({N},LeaveTable,2,FALSE),{N}))),'
-                         f'IF(OR({S}="No",ROUND({W},6)<=-AttGap),"Needs attention",'
+                         f'IF(OR({S}="No",AND(COUNTIF({blkp},"No")=0,ROUND({W},6)<=-AttGap)),"Needs attention",'
                          f'IF(ROUND({V},6)>=StrongGap,"Strong",IF(ROUND({V},6)<=-WeakGap,"Weak","On track"))))',
                          cf, row.label)
         sr.write_formula(r, SR_REASON,
@@ -747,7 +1090,7 @@ class SchoolWorkbook:
         ch = self.chart("column", "Average % by subject")
         ch.add_series({"categories": _rng("_calc", r0 + 1, 0, r0 + n), "values": _rng("_calc", r0 + 1, 1, r0 + n),
                        "fill": {"color": theme.BLUE}, "gap": 60,
-                       "data_labels": {"value": True, "num_format": "0", "font": {"size": 8, "color": theme.NAVY}}})
+                       "data_labels": {"value": True, "num_format": "0.0", "font": {"size": 8, "color": theme.NAVY}}})
         self.axis_style(ch, y_max=100)
         ws.insert_chart(9, 1, ch, {"x_scale": 1.24, "y_scale": 1.1})
         # labels doughnut
@@ -877,7 +1220,9 @@ class SchoolWorkbook:
             ws.write_formula(r, c0 + 1, fml, val, v0)
         # subject table
         hr = 12
-        heads = ["Subject", "Theory", "Practical", "Total", "Max", "%", "Class avg %", "Grade", "Status"]
+        junior = any(not cfg.has_streams(c) for c in self.classes)
+        heads = ["Subject", "Written" if junior else "Theory", "Int / Prac" if junior else "Practical", "Total", "Max", "%",
+                 "Class avg %", "Grade", "Status"]
         for c, h in enumerate(heads, 1):
             ws.write(hr, c, h, f.header())
         ws.set_row(hr, 22)
@@ -973,8 +1318,18 @@ class SchoolWorkbook:
         gtxt = ("Doing well in: " + ", ".join(gnames) + ".") if gnames else ""
         ws.write_formula(rr + 2, 1, f'=IF(LEN({good})=0,"","Doing well in: "&LEFT({good},LEN({good})-2)&".")',
                          f.get(font_size=10, font_color=theme.GREEN), gtxt)
-        focus = concat(["Weak", "Needs attention"])
-        fnames = [y["name"] for y in card["rows"] if y["label"] in ("Weak", "Needs attention")]
+        best_cell = rc(hr, H + 5)
+        ws.write_formula(hr, H + 5, f'=IFERROR(INDEX({name_rng},MATCH(_xlfn.AGGREGATE(14,6,{pct_rng},1),{pct_rng},0)),"")',
+                         None, next((y["name"] for y in card["rows"] if rem and rem[0].startswith("Best subject: " + y["name"] + " (")), ""))
+        fparts = []
+        for i in range(nrows):
+            idx, nm = idxs[i], rc(hr + 1 + i, 1)
+            fparts.append(f'IF({idx}="","",IF(AND(OR(INDEX(SR_Label,{idx})="Weak",INDEX(SR_Label,{idx})="Needs attention"),'
+                          f'OR({nm}<>{best_cell},INDEX(SR_Passed,{idx})="No")),{nm}&", ",""))')
+        focus = "&".join(fparts)
+        best_name = next((y["name"] for y in card["rows"] if rem and rem[0].startswith("Best subject: " + y["name"] + " (")), "")
+        fnames = [y["name"] for y in card["rows"] if y["label"] in ("Weak", "Needs attention")
+                  and (y["name"] != best_name or y["passed"] == "No")]
         ws.write_formula(rr + 3, 1, f'=IF(LEN({focus})=0,"","Focus area: "&LEFT({focus},LEN({focus})-2)&". See the subject notes below.")',
                          f.get(font_size=10, font_color=theme.AMBER),
                          ("Focus area: " + ", ".join(fnames) + ". See the subject notes below.") if fnames else "")
@@ -1327,7 +1682,7 @@ class SchoolWorkbook:
                     if mr is None:
                         ws.write_blank(rr, c_ex0 + j, None, f.cell(**band))
                     else:
-                        ref = f"'Marks Matrix'!{rc(mr, self.mx_cols['overall'])}"
+                        ref = f"'Overview'!{rc(mr, self.mx_cols['overall'])}"
                         ws.write_formula(rr, c_ex0 + j, f"=IF({ref}=\"\",\"\",{ref})", f.num(1, **band), _num(v))
                 dmap = {(a, b): d for a, b, d in x["deltas"]}
                 for j, (a, b) in enumerate(zip(exams, exams[1:])):
@@ -1351,7 +1706,7 @@ class SchoolWorkbook:
                 for j, e in enumerate(exams):
                     mr = self.mx_row_of.get((x["sid"], e))
                     if mr is not None:
-                        res_refs.append(f"'Marks Matrix'!{rc(mr, self.mx_cols['result'])}")
+                        res_refs.append(f"'Overview'!{rc(mr, self.mx_cols['result'])}")
                 if res_refs:
                     fml = '=""'
                     for ref in res_refs:
@@ -1372,8 +1727,8 @@ class SchoolWorkbook:
             for i in range(len(rows)):
                 rr = first + i
                 L = rc(rr, c_latest)
-                ws.write_formula(rr, hc, f'=IF(ISNUMBER({L}),{L}-ROW()/1000000,"")', None,
-                                 float(rows[i]["latest_change"]) - (rr + 1) / 1e6 if rows[i]["latest_change"] is not None else "")
+                ws.write_formula(rr, hc, f'=IF(ISNUMBER({L}),{L}-ROW()/1000000000,"")', None,
+                                 float(rows[i]["latest_change"]) - (rr + 1) / 1e9 if rows[i]["latest_change"] is not None else "")
             # fix running count to ignore blanks above (use MAX of above)
             for i in range(len(rows)):
                 rr = first + i
@@ -1401,6 +1756,111 @@ class SchoolWorkbook:
                                  watch[k]["name"] if k < len(watch) else "")
             ws.write(lr + 12, 6, "Only the first 10 are listed - filter the Watch column to see everyone.", f.note())
             r = lr + 14
+
+    # ------------------------------------------------------------------ Teachers
+    def write_teachers(self):
+        """Teacher analysis with formulas over Subject Results: per teacher, per class-section, per exam;
+        and every teacher of a subject side by side (latest exam of each section)."""
+        from ..teachers import analyse
+        ws, f, cfg = self.sheets["Teachers"], self.f, self.cfg
+        an = analyse(self.res, self.teachers)
+        ws.hide_gridlines(2)
+        ws.set_column(0, 0, 2)
+        ws.set_column(1, 1, 24)
+        ws.set_column(2, 2, 24)
+        ws.set_column(3, 9, 12)
+        self.banner(ws, "Teachers", "How the students each teacher teaches do in that teacher's subject. 'vs own average' "
+                                    "is the fair check: each student's mark in the subject minus that student's average over "
+                                    "all their subjects - it does not depend on how strong the section is.", 9)
+        heads = ["Class", "Exam", "Students", "Average %", "Pass %", "vs own average", "vs class average", "Not passed"]
+        num1 = f.num(1)
+        # the detail goes below the comparison tables, which point at it
+        n_cmp = sum(len(c["rows"]) + 3 for c in an["comparison"])
+        rr = 4 + 2 + n_cmp + 1
+        ws.write(rr, 1, "Teacher by teacher", f.section())
+        rr += 1
+        detail = {}
+        for card in an["cards"]:
+            rr += 1
+            ws.write_string(rr, 1, card["name"], f.get(bold=True, font_size=12, font_color=theme.NAVY))
+            ws.write_string(rr, 2, card["subject_name"] + " · " + ", ".join(card["classes"]), f.note())
+            rr += 1
+            for c, h in enumerate(heads, 1):
+                ws.write(rr, c, h, f.header())
+            latest_rows, change_cells = [], []
+            subj = cfg.subject_name(card["subject"]) if card["subject"] else ""
+            for sec in card["sections"]:
+                if sec["missing"]:
+                    rr += 1
+                    ws.write_string(rr, 1, sec["label"], f.cell())
+                    ws.write_string(rr, 2, "no marks uploaded", f.note())
+                    continue
+                first_row = None
+                for e in sec["by_exam"]:
+                    rr += 1
+                    if first_row is None:
+                        first_row = rr
+                    ws.write_string(rr, 1, sec["label"], f.cell(bold=True))
+                    ws.write_string(rr, 2, e["name"], f.cell())
+                    crit = 'SR_Class,"%s",SR_Section,"%s",SR_Subject,"%s",SR_Exam,"%s"' % (
+                        sec["cls"], sec["section"], subj, e["name"])
+                    yes = 'COUNTIFS(%s,SR_Passed,"Yes")' % crit
+                    no = 'COUNTIFS(%s,SR_Passed,"No")' % crit
+                    ws.write_formula(rr, 3, '=COUNTIFS(%s,SR_Status,"OK")' % crit, f.cell(align="center"), e["n"])
+                    ws.write_formula(rr, 4, '=IFERROR(AVERAGEIFS(SR_Pct,%s,SR_Status,"OK"),"")' % crit, num1, _num(e["avg"]))
+                    ws.write_formula(rr, 5, '=IFERROR(%s/(%s+%s)*100,"")' % (yes, yes, no), num1, _num(e["pass_pct"]))
+                    ws.write_formula(rr, 6, '=IFERROR(AVERAGEIFS(SR_VOwn,%s,SR_Status,"OK"),"")' % crit, num1,
+                                     _num(e["vs_own"]))
+                    si = self.stats_index.get((sec["cls"], e["exam"], card["subject"]))
+                    ws.write_formula(rr, 7, ('=IFERROR(%s-_stats!%s,"")' % (rc(rr, 4), rc(si, 3))) if si else '=""', num1,
+                                     _num(e["vs_class"]))
+                    ws.write_formula(rr, 8, "=" + no, f.cell(align="center"), e["not_passed"])
+                latest_rows.append((rr, sec))
+                if len(sec["by_exam"]) > 1:
+                    change_cells.append("%s-%s" % (rc(rr, 4), rc(first_row, 4)))
+            detail[card["id"]] = (latest_rows, change_cells)
+            for line in card["notes"]:
+                rr += 1
+                ws.write_string(rr, 1, "• " + line, f.note())
+            rr += 1
+        # comparison: every teacher of a subject side by side (latest exam of each of their sections)
+        r = 4
+        ws.write(r, 1, "Teachers of the same subject, side by side (latest exam)", f.section())
+        r += 2
+        cmp_heads = ["Teacher", "Classes", "Students", "Average %", "Pass %", "vs own average", "Change since first exam",
+                     "Not passed"]
+        for block in an["comparison"]:
+            ws.write_string(r, 1, block["name"], f.get(bold=True, font_color=theme.NAVY))
+            r += 1
+            for c, h in enumerate(cmp_heads, 1):
+                ws.write(r, c, h, f.header())
+            for row in block["rows"]:
+                r += 1
+                lat, chg = detail.get(row["id"], ([], []))
+                ws.write_string(r, 1, row["name"], f.cell(bold=True))
+                ws.write_string(r, 2, row["classes"], f.cell())
+                if not lat:
+                    continue
+                cnt = "+".join(rc(x, 3) for x, _ in lat)
+                ws.write_formula(r, 3, "=" + cnt, f.cell(align="center"), row["students_latest"])
+                wsum = "+".join("N(%s)*N(%s)" % (rc(x, 3), rc(x, 4)) for x, _ in lat)
+                ws.write_formula(r, 4, '=IFERROR((%s)/(%s),"")' % (wsum, cnt), num1, _num(row["avg"]))
+                subj = cfg.subject_name(block["subject"])
+                yes = "+".join('COUNTIFS(SR_Class,"%s",SR_Section,"%s",SR_Subject,"%s",SR_Exam,"%s",SR_Passed,"Yes")'
+                               % (s["cls"], s["section"], subj, s["latest"]["name"]) for _, s in lat)
+                no = "+".join(rc(x, 8) for x, _ in lat)
+                ws.write_formula(r, 5, '=IFERROR((%s)/((%s)+(%s))*100,"")' % (yes, yes, no), num1, _num(row["pass_pct"]))
+                vsum = "+".join("N(%s)*N(%s)" % (rc(x, 3), rc(x, 6)) for x, _ in lat)
+                ws.write_formula(r, 6, '=IFERROR((%s)/(%s),"")' % (vsum, cnt), num1, _num(row["vs_own"]))
+                ws.write_formula(r, 7, ('=IFERROR(AVERAGE(%s),"")' % ",".join(chg)) if chg else '=""', num1,
+                                 _num(row["change"]))
+                ws.write_formula(r, 8, "=" + no, f.cell(align="center"), row["not_passed"])
+            r += 2
+        for c in (6, 7):
+            ws.conditional_format(4, c, rr, c, {"type": "cell", "criteria": "<", "value": 0,
+                                                "format": f.get(font_color=theme.RED)})
+            ws.conditional_format(4, c, rr, c, {"type": "cell", "criteria": ">", "value": 0,
+                                                "format": f.get(font_color=theme.GREEN)})
 
     # ------------------------------------------------------------------ Validation report
     def write_validation(self):
@@ -1496,5 +1956,5 @@ class SchoolWorkbook:
             ws.write_string(1 + i // chunk, 0, text[i:i + chunk])
 
 
-def write_workbook(ds, res, recipe=None, vba=None, logo=None, generated=None):
-    return SchoolWorkbook(ds, res, recipe=recipe, vba=vba, logo=logo, generated=generated).build()
+def write_workbook(ds, res, recipe=None, vba=None, logo=None, generated=None, teachers=None):
+    return SchoolWorkbook(ds, res, recipe=recipe, vba=vba, logo=logo, generated=generated, teachers=teachers).build()

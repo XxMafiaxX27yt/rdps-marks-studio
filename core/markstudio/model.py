@@ -39,7 +39,7 @@ class Ref:
 class Student:
     sid: str
     name: str
-    cls: str = ""                 # 'XI' / 'XII'
+    cls: str = ""                 # 'I' ... 'XII'
     section: str = ""
     roll: str = ""                # school roll number
     adm_no: str = ""              # admission number
@@ -50,6 +50,7 @@ class Student:
     group: str = ""               # A-E (worked out from subjects unless the file says)
     group_given: str = ""         # group written in the file, if any
     group_note: str = ""
+    combo: str = ""               # XI-XII subject combination (PCM, PCB, ...) - '' in other classes
     subjects: list = field(default_factory=list)     # subject codes the student takes
     choices_given: bool = False   # True when the file listed the student's subjects
     refs: list = field(default_factory=list)
@@ -67,7 +68,7 @@ class Student:
             "sid": self.sid, "name": self.name, "cls": self.cls, "section": self.section,
             "roll": self.roll, "adm_no": self.adm_no, "board_roll": self.board_roll,
             "father": self.father, "mother": self.mother, "gender": self.gender,
-            "group": self.group, "group_given": self.group_given, "group_note": self.group_note,
+            "group": self.group, "group_given": self.group_given, "group_note": self.group_note, "combo": self.combo,
             "subjects": list(self.subjects), "choices_given": self.choices_given,
             "refs": [r.to_dict() for r in self.refs],
         }
@@ -79,7 +80,7 @@ class Mark:
     sid: str
     exam: str
     subject: str
-    component: str                # 'theory' / 'practical'
+    component: str                # 'theory' / 'practical' (practical or internal) / 'total' / a part like 'i_notebook'
     raw: str                      # exactly what the file had (after any teacher correction)
     kind: str                     # 'number' | 'leave' | 'blank' | 'invalid'
     value: Optional[Decimal] = None

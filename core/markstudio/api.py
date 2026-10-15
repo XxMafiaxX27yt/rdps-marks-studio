@@ -16,7 +16,7 @@ from .query import Engine, QueryError
 from .commands import parse_command
 from .views import to_json
 
-VERSION = "1.0.0"
+VERSION = "2.0.0"
 
 
 class Session:
@@ -31,6 +31,7 @@ class Session:
         self.restored = None        # file name when a workbook was loaded back
         self.boards = []
         self.board_texts = []
+        self.teachers = []          # typed on the website (the browser keeps them)
 
 
 S = Session()
@@ -178,8 +179,10 @@ def clear_all():
     global S
     settings = S.cfg.settings
     remembered = S.project.remembered
+    teachers = S.teachers
     S = Session(settings)
     S.project.remembered = remembered
+    S.teachers = teachers
     return {"cleared": True}
 
 
@@ -275,6 +278,7 @@ def summary_dict():
     classes = []
     for c in ds.classes():
         classes.append({"cls": c, "label": cfg.class_label(c),
+                        "combos": sorted({s.combo for s in ds.students.values() if s.cls == c and s.combo}),
                         "exams": [{"code": e, "name": cfg.exam_name(e)} for e in ds.exams_for(c)],
                         "sections": ds.sections_for(c),
                         "subjects": [{"code": s, "name": cfg.subject_name(s), "short": cfg.subject_short(s)} for s in ds.subjects_for(c)],
@@ -342,30 +346,41 @@ def progress(cls):
 
 
 @safe
-def matrix(cls, exam, section="All"):
-    """Marks table for the preview (one row per student)."""
+def matrix(cls, exam, section="All", combo=""):
+    """Marks table for the preview (one row per student). Only the subjects of the class (or the chosen
+    stream); each student's language / elective shares one column."""
+    from .excel.school import _slot_plan
     ds, res, cfg = S.ds, S.res, S.cfg
-    subs = ds.subjects_for(cls)
+    studs = [st for st in ds.ordered_students() if st.cls == cls and (section in ("All", "", None) or st.section == section)
+             and (not combo or st.combo == combo) and (st.sid, exam) in res.exam_results]
+    subjects = cfg.order_subjects({r.subject for st in studs for r in res.exam_results[(st.sid, exam)].rows})
+    core, slots, slot_of = _slot_plan(cfg, cls, studs, subjects)
     rows = []
-    for st in ds.ordered_students():
-        if st.cls != cls or (section not in ("All", "", None) and st.section != section):
-            continue
-        er = res.exam_results.get((st.sid, exam))
-        if not er:
-            continue
+    for st in studs:
+        er = res.exam_results[(st.sid, exam)]
         by = {r.subject: r for r in er.rows}
-        cells = []
-        for s in subs:
-            r = by.get(s)
+
+        def cell(r):
             if r is None:
-                cells.append(None)
-            else:
-                cells.append({"pct": r.pct, "label": r.label, "status": r.status, "th": r.th if r.th is not None else r.th_raw,
-                              "pr": (r.pr if r.pr is not None else r.pr_raw) if r.pr_max else None, "max": r.max,
-                              "obt": r.obtained, "reason": r.reason})
+                return None
+            return {"pct": r.pct, "label": r.label, "status": r.status, "th": r.th if r.th is not None else r.th_raw,
+                    "pr": (r.pr if r.pr is not None else r.pr_raw) if r.pr_max else None, "max": r.max,
+                    "obt": r.obtained, "reason": r.reason, "subject": cfg.subject_name(r.subject)}
+        cells = [cell(by.get(s)) for s in core]
+        mine = slot_of.get(st.sid, {})
+        for i in range(len(slots)):
+            sub = next((x for x, k in mine.items() if k == i), None)
+            c = cell(by.get(sub)) if sub else None
+            if c:
+                c["slot_subject"] = cfg.subject_short(sub)
+            cells.append(c)
         rows.append({"sid": st.sid, "name": st.name, "roll": st.roll, "section": st.section, "group": st.group,
-                     "cells": cells, "overall": er.overall, "result": er.result, "rank": er.rank})
-    return {"subjects": [{"code": s, "short": cfg.subject_short(s), "name": cfg.subject_name(s)} for s in subs], "rows": rows}
+                     "combo": st.combo, "cells": cells, "overall": er.overall, "result": er.result, "rank": er.rank})
+    cols = [{"code": s, "short": cfg.subject_short(s), "name": cfg.subject_name(s)} for s in core] +            [{"code": "", "short": sl["short"], "name": sl["title"] + ": " + ", ".join(cfg.subject_name(x) for x in
+                                                                                    cfg.order_subjects(sl["subjects"]))}
+            for sl in slots]
+    combos = sorted({st.combo for st in ds.students.values() if st.cls == cls and st.combo})
+    return {"subjects": cols, "rows": rows, "combos": combos}
 
 
 # ================================================================== downloads
@@ -374,7 +389,7 @@ def build_workbook_bytes(macros=True):
     from .excel.school import write_workbook
     if S.res is None:
         raise ValueError("Make the results first.")
-    return write_workbook(S.ds, S.res, recipe=S.recipe, vba=bool(macros))
+    return write_workbook(S.ds, S.res, recipe=S.recipe, vba=bool(macros), teachers=all_teachers())
 
 
 def workbook_name(macros=True):
@@ -389,7 +404,65 @@ def template_bytes(cls, prefill=False):
         students = [{"adm_no": s.adm_no, "roll": s.roll, "board_roll": s.board_roll, "name": s.name, "father": s.father,
                      "mother": s.mother, "section": s.section, "group": s.group, "subjects": s.subjects}
                     for s in S.ds.ordered_students() if s.cls == cls]
-    return tb(S.cfg, cls, students=students)
+    teachers = [t for t in all_teachers() if any(c == cls for c, _ in t["pairs"])]
+    return tb(S.cfg, cls, students=students, teachers=teachers)
+
+
+# ================================================================== teachers
+def all_teachers():
+    """Teachers typed on the website + teachers read from 'Teachers' sheets. The same name + subject is one
+    teacher: a typed entry wins; the same teacher in several files (one per class) gets all those classes."""
+    from .teachers import normalise
+    from .textutil import norm_name
+    typed = normalise(S.teachers, S.cfg, S.project.vocab)
+    typed_keys = {(norm_name(t["name"]), t["subject"]) for t in typed}
+    out = list(typed)
+    merged = {}
+    for t in normalise(S.project.file_teachers, S.cfg, S.project.vocab):
+        k = (norm_name(t["name"]), t["subject"])
+        if k in typed_keys:
+            continue
+        if k in merged:
+            m = merged[k]
+            for p in t["pairs"]:
+                if p not in m["pairs"]:
+                    m["pairs"].append(p)
+                    m["classes"].append(f"{p[0]}-{p[1]}" if p[1] else p[0])
+            continue
+        t["id"] = f"F{len(out) + 1}"
+        merged[k] = t
+        out.append(t)
+    return out
+
+
+@safe
+def set_teachers(js):
+    S.teachers = json.loads(js) if js else []
+    return teachers_list_inner()
+
+
+def teachers_list_inner():
+    from .teachers import normalise
+    return {"typed": normalise(S.teachers, S.cfg, S.project.vocab),
+            "from_files": normalise(S.project.file_teachers, S.cfg, S.project.vocab)}
+
+
+@safe
+def teachers_list():
+    return teachers_list_inner()
+
+
+@safe
+def teacher_analysis():
+    from .teachers import analyse
+    if S.res is None:
+        raise ValueError("Make the results first.")
+    ts = all_teachers()
+    out = analyse(S.res, ts)
+    for c in out["cards"]:
+        c.pop("pairs", None)
+    out["count"] = len(ts)
+    return out
 
 
 # ================================================================== boards
@@ -407,11 +480,12 @@ def board_summary():
         d = {k: v for k, v in an.items() if k not in ("rows", "ranked", "comp_list", "others_list", "issues")}
         d["ranked"] = [{"rank": r["rank"], "name": r["s"].name, "roll": r["s"].roll, "best5": r["best5"],
                         "pct_all": r["pct_all"], "result": r["s"].result} for r in an["ranked"][:25]]
-        d["comp_list"] = [{"name": s.name, "roll": s.roll, "comp": [S.cfg.subject_name(c) for c in s.comp]} for s in an["comp_list"]]
+        bcls = an["meta"].get("cls") or ""
+        d["comp_list"] = [{"name": s.name, "roll": s.roll, "comp": [S.cfg.board_name(c, bcls) for c in s.comp]} for s in an["comp_list"]]
         d["issues"] = [i.to_dict() for i in an["issues"]]
         d["students"] = [{"roll": r["s"].roll, "name": r["s"].name, "gender": r["s"].gender, "result": r["s"].result,
                           "best5": r["best5"], "pct_all": r["pct_all"], "rank": r["rank"],
-                          "subjects": [{"code": x["code"], "name": S.cfg.subject_short(x["code"]), "marks": x["marks"],
+                          "subjects": [{"code": x["code"], "name": S.cfg.board_short(x["code"], bcls), "marks": x["marks"],
                                         "grade": x["grade"]} for x in r["s"].subjects]} for r in an["rows"]]
         out.append(d)
     years = board.compare_years(S.boards) if len({a["meta"]["year"] for a in S.boards}) > 1 else None
@@ -441,11 +515,11 @@ def board_workbook_name():
 def ask(question, hints_json="", force_json=""):
     hints = json.loads(hints_json) if hints_json else None
     force = json.loads(force_json) if force_json else None
-    U = Understander(S.ds, S.res, S.boards, S.cfg)
+    U = Understander(S.ds, S.res, S.boards, S.cfg, teachers=all_teachers())
     parsed = U.parse(question, hints, force)
     if "query" not in parsed:
         return parsed
-    E = Engine(S.ds, S.res, S.boards)
+    E = Engine(S.ds, S.res, S.boards, teachers=all_teachers())
     try:
         ans = E.run(parsed["query"])
     except QueryError as ex:
@@ -458,7 +532,7 @@ def ask(question, hints_json="", force_json=""):
 
 @safe
 def run_query(query_json):
-    return Engine(S.ds, S.res, S.boards).run(json.loads(query_json))
+    return Engine(S.ds, S.res, S.boards, teachers=all_teachers()).run(json.loads(query_json))
 
 
 @safe
@@ -467,7 +541,7 @@ def command(text):
         raise ValueError("Make the results first.")
     out = parse_command(text, S.ds, S.res, S.recipe, S.cfg)
     if out.get("sheet_question"):
-        U = Understander(S.ds, S.res, S.boards, S.cfg)
+        U = Understander(S.ds, S.res, S.boards, S.cfg, teachers=all_teachers())
         parsed = U.parse(out["sheet_question"])
         if "query" not in parsed:
             return {"error": "I couldn't understand what the sheet should show: " + parsed.get("message", parsed.get("question", "")),
@@ -578,8 +652,10 @@ def load_workbook(name, data):
     settings = blob.get("settings")
     global S
     remembered = S.project.remembered
+    teachers = S.teachers
     S = Session(settings)
     S.project.remembered = remembered
+    S.teachers = teachers or blob.get("teachers") or []
     ds, changes = snapshot.restore(blob, now, S.cfg, name)
     S.ds = ds
     S.recipe = blob.get("recipe") or {"items": []}

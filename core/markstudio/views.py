@@ -124,7 +124,9 @@ def report_card(res, sid, exam):
                 "practical": (r.pr if r.pr is not None else (r.pr_raw if r.pr_kind != "blank" else "")) if r.pr_max else None,
                 "obtained": r.obtained, "max": r.max, "pct": r.pct, "class_avg": r.class_avg, "grade": r.grade,
                 "status": r.status, "label": r.label, "gentle": GENTLE.get(r.label, r.label), "reason": r.reason,
-                "passed": r.passed, "th_max": r.th_max, "pr_max": r.pr_max,
+                "passed": r.passed, "th_max": r.th_max, "pr_max": r.pr_max, "pr_label": r.pr_label or "",
+                "written_only": bool(r.written_only),
+                "parts": [{"key": k, "label": cfg.part_label(k), "value": v, "max": m} for k, (v, m) in (r.parts or {}).items()],
             })
     pg = progress(res, sid)
     return {
@@ -135,7 +137,21 @@ def report_card(res, sid, exam):
         "class_size": sum(1 for o in res.exam_results.values() if o.exam == exam and o.overall is not None
                           and ds.students[o.sid].cls == st.cls),
         "remarks": remarks(res, sid, exam), "trend": pg["series"],
+        "streams": cfg.has_streams(st.cls),
+        "th_head": "Theory" if cfg.has_streams(st.cls) else "Written",
+        "pr_head": _pr_head([x["pr_label"] for x in rows if x["pr_max"]]),
     }
+
+
+def _pr_head(labels):
+    labels = set(labels)
+    if not labels:
+        return "Practical"
+    if labels == {"Internal"}:
+        return "Internal"
+    if labels == {"Practical"}:
+        return "Practical"
+    return "Int / Prac"
 
 
 def progress_rows(res, cls):

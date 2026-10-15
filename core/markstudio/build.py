@@ -11,8 +11,9 @@ from decimal import Decimal
 
 from .model import Student, Mark, Issue, Ref
 from .textutil import clean, norm, norm_name, parse_number, similar, fmt_mark
-from .layout import Vocab, detect, signature
-from .groups import infer_group
+from .layout import Vocab, detect, signature, LANG_MARK, PART_KEYS
+from .groups import infer_group, combo_of
+from .teachers import TEACHER_SHEETS, read_sheet as read_teachers
 from . import readers, gazette
 
 INFO_SHEETS = {"how to fill", "instructions", "instruction", "read me", "readme", "lists", "help", "notes",
@@ -41,6 +42,7 @@ class Project:
         self.corrections = {}        # "file|sheet|row|col" -> new text
         self.remembered = {}         # layout signature -> saved column choices
         self.gazettes = []           # parsed board gazettes (kept separate)
+        self.file_teachers = []      # teachers read from 'Teachers' sheets
         self._n = 0
 
     # ------------------------------------------------------------ files
@@ -68,6 +70,17 @@ class Project:
         src = Source(f"F{self._n}", name, sheets, "scan" if ocr else "table")
         self.sources.append(src)
         for sh in sheets:
+            if norm(sh.name) in TEACHER_SHEETS:
+                found = read_teachers(sh.rows, self.cfg, self.vocab, name, sh.name)
+                for t in found:
+                    t["source_id"] = src.id
+                self.file_teachers += found
+                lay = {"sheet": sh.name, "skip": True, "note": f"Teacher list - {len(found)} teachers read (see Teachers)",
+                       "columns": [], "header_rows": [], "data_start": 0, "format": "wide", "exam": None, "cls": None,
+                       "section": "", "kind": "info", "signature": "", "needs_exam": False, "needs_class": False,
+                       "problems": [], "title": "", "exam_from": "", "cls_from": "", "max_row": None}
+                self.layouts[(src.id, sh.name)] = lay
+                continue
             if norm(sh.name) in INFO_SHEETS:
                 lay = {"sheet": sh.name, "skip": True, "note": "Instructions sheet - not read", "columns": [],
                        "header_rows": [], "data_start": 0, "format": "wide", "exam": None, "cls": None,
@@ -90,6 +103,7 @@ class Project:
 
     def remove_source(self, source_id):
         self.sources = [s for s in self.sources if s.id != source_id]
+        self.file_teachers = [t for t in self.file_teachers if t.get("source_id") != source_id]
         for k in [k for k in self.layouts if k[0] == source_id]:
             del self.layouts[k]
 
@@ -234,7 +248,9 @@ class Builder:
         self.by_key = {}             # identity key -> sid
         self.seen_in = {}            # sid -> set of (source, sheet)
         self.cells = {}              # mark key -> list of Mark (to find duplicates)
+        self.all_marks = []          # every mark read, before subjects/parts are settled
         self.choices = {}            # sid -> list of subject codes from 'subject choice' columns
+        self.lang_choice = {}        # sid -> (language subject code, ref) from 'Language' text columns
         self.col_info = []           # (src, sheet, lay)
         self.n = 0
 
@@ -352,16 +368,8 @@ class Builder:
         mark_cols = [c for c in by_role.get("mark", [])]
         sheet_info = {"src": src, "sheet": sh.name, "lay": lay, "students": []}
         self.col_info.append(sheet_info)
-        # column-level checks
-        for c in mark_cols:
-            exam = c["exam"] or lay["exam"]
-            if c["subject"] and c["component"] == "practical" and exam in cfg.exams:
-                if not cfg.components(c["subject"], exam).get("practical"):
-                    self.ds.issue("error", "practical_not_allowed",
-                                  f"{sh.name}: column “{c['header']}” is practical marks for {cfg.subject_name(c['subject'])}, "
-                                  f"which has no practical in {cfg.exam_name(exam)}. These marks are not used.",
-                                  Ref(src.name, sh.name, (lay['header_rows'][-1] + 1) if lay['header_rows'] else 0, c["col"]),
-                                  subject=c["subject"], exam=exam)
+        # (whether a column's part exists - practical, internal, notebook... - depends on the
+        #  student's class, so it is checked mark by mark in _finish)
 
         for r in range(lay["data_start"], len(sh.rows)):
             row = sh.rows[r]
@@ -428,6 +436,18 @@ class Builder:
                         self.ds.issue("warning", "unknown_choice",
                                       f"{st.name}: subject “{clean(part)}” in the subject list is not in the subject table.",
                                       Ref(src.name, sh.name, r + 1, c["col"]), sid=st.sid)
+            # which language the student takes (text under a 'Language' heading)
+            for c in by_role.get("lang_choice", []):
+                t = get(c["col"])
+                if not t:
+                    continue
+                code = v.find_subject(t) or v.find_subject_fuzzy(t)
+                if code:
+                    self.lang_choice[st.sid] = (code, Ref(src.name, sh.name, r + 1, c["col"]))
+                else:
+                    self.ds.issue("warning", "unknown_language",
+                                  f"{st.name}: language “{t}” is not in the subject table.",
+                                  Ref(src.name, sh.name, r + 1, c["col"]), sid=st.sid)
             # long format: subject (and exam) come from the row
             row_subject = None
             if lay["format"] == "long":
@@ -484,11 +504,11 @@ class Builder:
         return None
 
     def _make_mark(self, st, exam, subject, component, raw, ref, original):
+        """Read one cell. Whether the value fits the maximum is checked later (_settle), when the
+        student's class - and so the marks scheme - is known for sure."""
         cfg = self.cfg
         m = Mark(sid=st.sid, exam=exam, subject=subject, component=component, raw=raw, kind="blank",
                  ref=ref, original=original)
-        comps = cfg.components(subject, exam) if exam in cfg.exams else {}
-        mx = cfg.subject_max(subject, exam) if component == "total" else comps.get(component)
         if raw == "":
             m.kind = "blank"
         elif cfg.leave_code(raw):
@@ -499,20 +519,117 @@ class Builder:
                 m.kind, m.problem = "invalid", f"“{raw}” is not a number or a leave code"
             elif val < 0:
                 m.kind, m.problem = "invalid", f"{raw} is negative"
-            elif mx is None:
-                m.kind, m.problem = "invalid", f"{cfg.subject_name(subject)} has no {component} part in {cfg.exam_name(exam)}"
-                m.value = val
-            elif val > mx:
-                m.kind, m.problem = "invalid", f"{fmt_mark(val)} is more than the maximum {fmt_mark(mx)}"
-                m.value = val
             else:
                 m.kind, m.value = "number", val
-        self.cells.setdefault(m.key(), []).append(m)
+        self.all_marks.append(m)
         return m
 
     # ---------------------------------------------------------------- after reading
+    def _language_of(self, st):
+        """The language a student takes (Classes I-X): from a 'Language' column, the subject list,
+        or a column of that language's own marks."""
+        langs = self.cfg.languages_for(st.cls)
+        if st.sid in self.lang_choice:
+            return self.lang_choice[st.sid][0]
+        picked = [c for c in self.choices.get(st.sid, []) if c in langs]
+        if len(picked) == 1:
+            return picked[0]
+        own = {m.subject for m in self.all_marks if m.sid == st.sid and m.subject in langs and m.kind != "blank"}
+        if st.cls == "X":
+            own.discard("302")
+        return own.pop() if len(own) == 1 else None
+
+    def _settle(self):
+        """Every mark gets its real subject and part, and is checked against the maximum of the
+        student's class. Marks of subjects/parts that are not assessed are set aside with a note."""
+        cfg, ds = self.cfg, self.ds
+        kept, notes, no_lang, bad_cols = [], {}, set(), set()
+        # a marks column with nothing typed in it at all (an exam not written yet, internals not
+        # given) is left out - its blanks do not mean "absent"
+        filled = {(m.ref.file, m.ref.sheet, m.ref.col) for m in self.all_marks if m.kind != "blank"}
+        empty = {}
+        for m in self.all_marks:
+            k = (m.ref.file, m.ref.sheet, m.ref.col)
+            if m.ref.col is not None and k not in filled:
+                empty.setdefault((m.ref.file, m.ref.sheet), set()).add(m.ref.col)
+        for (fname, sheet), cols in empty.items():
+            ds.issue("info", "empty_columns",
+                     f"{fname} › {sheet}: {len(cols)} marks column{'s have' if len(cols) != 1 else ' has'} nothing typed "
+                     f"in {'them' if len(cols) != 1 else 'it'} - left out (not counted as absent).", Ref(fname, sheet))
+        for m in self.all_marks:
+            if m.ref.col is not None and (m.ref.file, m.ref.sheet, m.ref.col) not in filled:
+                continue
+            st = ds.students[m.sid]
+            if m.subject == LANG_MARK:
+                code = self._language_of(st)
+                if not code:
+                    if m.kind != "blank" and st.sid not in no_lang:
+                        no_lang.add(st.sid)
+                        ds.issue("error", "no_language",
+                                 f"{st.name}: has marks under “Language” but it is not known which language "
+                                 f"they take. Add a Language column (French / German / ...) to the student list.",
+                                 m.ref, sid=st.sid)
+                    continue
+                m.subject = code
+            m.subject = cfg.resolve_subject(st.cls, m.subject)
+            if m.exam not in cfg.exams:
+                kept.append(m)
+                continue
+            sc = cfg.scheme(st.cls, m.subject, m.exam)
+            if sc is None:
+                if m.kind != "blank":
+                    k = (st.cls, m.subject, m.exam)
+                    notes.setdefault(k, 0)
+                    notes[k] += 1
+                continue
+            # a generic part name from the heading ('notebook') -> this scheme's part ('i_notebook' / 'p_notebook')
+            if m.component in PART_KEYS:
+                keys = [k for k, _ in cfg.subparts(st.cls, m.subject, m.exam)]
+                real = next((k for k in PART_KEYS[m.component] if k in keys), None)
+                if real is None:
+                    ck = (m.ref.file, m.ref.sheet, m.ref.col, st.cls)
+                    if ck not in bad_cols:
+                        bad_cols.add(ck)
+                        ds.issue("error", "part_not_allowed",
+                                 f"{m.ref.sheet}: a “{m.component}” column for {cfg.subject_name(m.subject)} - Class {st.cls} "
+                                 f"has no such part in {cfg.exam_name(m.exam)}. These marks are not used.",
+                                 Ref(m.ref.file, m.ref.sheet, 0, m.ref.col), subject=m.subject, exam=m.exam)
+                    continue
+                m.component = real
+            comps = cfg.components(st.cls, m.subject, m.exam)
+            parts = dict(cfg.subparts(st.cls, m.subject, m.exam))
+            if m.component == "total":
+                mx = cfg.subject_max(st.cls, m.subject, m.exam)
+            elif m.component in parts:
+                mx = parts[m.component]
+            else:
+                mx = comps.get(m.component)
+            if mx is None:
+                ck = (m.ref.file, m.ref.sheet, m.ref.col, st.cls)
+                if ck not in bad_cols:
+                    bad_cols.add(ck)
+                    what = "practical" if m.component == "practical" else m.component
+                    ds.issue("error", "practical_not_allowed",
+                             f"{m.ref.sheet}: column {m.ref.cell().rstrip('0123456789') or '?'} has {what} marks for "
+                             f"{cfg.subject_name(m.subject)}, which has no {what} part in Class {st.cls or '?'} "
+                             f"{cfg.exam_name(m.exam)}. These marks are not used.",
+                             Ref(m.ref.file, m.ref.sheet, 0, m.ref.col), subject=m.subject, exam=m.exam)
+                continue
+            if m.kind == "number" and m.value > mx:
+                m.kind, m.problem = "invalid", f"{fmt_mark(m.value)} is more than the maximum {fmt_mark(mx)}"
+            kept.append(m)
+        for (cls, subj, exam), n in notes.items():
+            ds.issue("info", "not_assessed",
+                     f"Class {cls}: {cfg.subject_name(subj)} is not counted in {cfg.exam_name(exam)} (school rule in "
+                     f"settings), so {n} mark{'s' if n != 1 else ''} there {'are' if n != 1 else 'is'} not used.",
+                     None, subject=subj, exam=exam)
+        self.cells = {}
+        for m in kept:
+            self.cells.setdefault(m.key(), []).append(m)
+
     def _finish(self):
         cfg, ds = self.cfg, self.ds
+        self._settle()
         # 1. one record per key: duplicates and conflicts
         marks = []
         for key, lst in self.cells.items():
@@ -569,44 +686,94 @@ class Builder:
         present = {}
         for m in marks:
             present.setdefault((m.sid, m.exam, m.subject), {})[m.component] = m
+        drop = set()
+        both_noted = set()
+        written_only = {}
         for (sid, exam, subject), parts in present.items():
             if exam not in cfg.exams or "total" in parts:
                 continue
-            for comp in cfg.components(subject, exam):
-                if comp not in parts:
-                    any_m = next(iter(parts.values()))
-                    mm = Mark(sid=sid, exam=exam, subject=subject, component=comp, raw="", kind="blank",
-                              ref=Ref(any_m.ref.file, any_m.ref.sheet, any_m.ref.row), problem="no column")
-                    marks.append(mm)
-                    parts[comp] = mm
+            st = ds.students[sid]
+            comps = cfg.components(st.cls, subject, exam)
+            any_m = next(iter(parts.values()))
+
+            def add_blank(comp):
+                mm = Mark(sid=sid, exam=exam, subject=subject, component=comp, raw="", kind="blank",
+                          ref=Ref(any_m.ref.file, any_m.ref.sheet, any_m.ref.row), problem="no column")
+                marks.append(mm)
+                parts[comp] = mm
+            if "theory" in comps and "theory" not in parts:
+                add_blank("theory")
+            if "practical" not in comps:
+                continue
+            subs = [k for k, _ in cfg.subparts(st.cls, subject, exam)]
+            given = [k for k in subs if k in parts]
+            if subs and given:
+                if "practical" in parts:
+                    # the internal marks were given both as one total and as parts: the parts win
+                    # (unless they are all blank)
+                    if any(parts[k].kind != "blank" for k in given):
+                        direct = parts.pop("practical")
+                        drop.add(id(direct))
+                        kk = (direct.ref.file, direct.ref.sheet, subject, exam)
+                        if direct.kind != "blank" and kk not in both_noted:
+                            both_noted.add(kk)
+                            ds.issue("info", "internal_both",
+                                     f"{direct.ref.sheet}: {cfg.subject_name(subject)} ({cfg.exam_name(exam)}) has the "
+                                     f"{cfg.second_label(st.cls, subject, exam).lower()} marks both as one total and as "
+                                     f"parts - the parts are used.", Ref(direct.ref.file, direct.ref.sheet),
+                                     subject=subject, exam=exam)
+                        for k in subs:
+                            if k not in parts and k != "i_pt":
+                                add_blank(k)
+                    else:
+                        for k in given:
+                            drop.add(id(parts.pop(k)))
+                else:
+                    for k in subs:
+                        if k not in parts and k != "i_pt":
+                            add_blank(k)
+            elif "practical" not in parts:
+                if cfg.second_optional(st.cls, subject, exam):
+                    written_only.setdefault((st.cls, exam), set()).add(subject)
+                else:
+                    add_blank("practical")
+        if drop:
+            marks = [m for m in marks if id(m) not in drop]
+        for (cls, exam), subs in sorted(written_only.items(), key=lambda x: (cfg.class_level(x[0][0]), x[0][1])):
+            ds.issue("info", "written_only",
+                     f"Class {cls} {cfg.exam_name(exam)}: no internal / practical marks were given for "
+                     f"{', '.join(cfg.subject_name(s) for s in cfg.order_subjects(subs))} - worked out of the written "
+                     f"paper alone. Add them any time (one internal mark, or portfolio / project / notebook).",
+                     None, exam=exam)
         # 4. validation messages for every record
         sheet_missing = set()
         for m in marks:
             st = ds.students[m.sid]
             subj, exn = cfg.subject_name(m.subject), cfg.exam_name(m.exam)
+            part = part_word(cfg, st.cls, m)
             if m.kind == "invalid":
                 fix = {"type": "cell", "ref": m.ref.to_dict(), "key": ref_key(m.ref), "current": m.raw}
                 ds.issue("error", "invalid_mark",
-                         f"{st.name}: {subj} {m.component} ({exn}) - {m.problem}. Not used until corrected.",
+                         f"{st.name}: {subj} {part} ({exn}) - {m.problem}. Not used until corrected.",
                          m.ref, sid=m.sid, subject=m.subject, exam=m.exam, fix=fix)
             elif m.kind == "blank" and m.problem == "no column":
                 k = (m.ref.file, m.ref.sheet, m.subject, m.exam, m.component)
                 if k not in sheet_missing:
                     sheet_missing.add(k)
                     ds.issue("error", "missing_component_column",
-                             f"{m.ref.file} › {m.ref.sheet}: {subj} has no {m.component} column for {exn}, so "
+                             f"{m.ref.file} › {m.ref.sheet}: {subj} has no {part} column for {exn}, so "
                              f"{subj} cannot be totalled there.", Ref(m.ref.file, m.ref.sheet), subject=m.subject, exam=m.exam)
             elif m.kind == "blank":
-                other = [x for x in marks if x.sid == m.sid and x.exam == m.exam and x.subject == m.subject and x is not m]
-                if any(x.kind == "number" for x in other):
+                other = present.get((m.sid, m.exam, m.subject), {})
+                if any(x.kind == "number" for x in other.values() if x is not m):
                     ds.issue("warning", "missing_component",
-                             f"{st.name}: {subj} {m.component} ({exn}) is blank while the other part has marks - "
+                             f"{st.name}: {subj} {part} ({exn}) is blank while another part has marks - "
                              f"{subj} is left incomplete.", m.ref, sid=m.sid, subject=m.subject, exam=m.exam,
                              fix={"type": "cell", "ref": m.ref.to_dict(), "key": ref_key(m.ref), "current": ""}
                              if m.ref.col is not None else {})
             if m.original is not None:
                 ds.issue("info", "corrected",
-                         f"{st.name}: {subj} {m.component} ({exn}) corrected by you from “{m.original}” to “{m.raw}”.",
+                         f"{st.name}: {subj} {part} ({exn}) corrected by you from “{m.original}” to “{m.raw}”.",
                          m.ref, sid=m.sid, subject=m.subject, exam=m.exam,
                          fix={"type": "undo", "key": ref_key(m.ref)})
         blanks = {}
@@ -627,11 +794,15 @@ class Builder:
         # 6. class, group, same names
         for sid, st in ds.students.items():
             if not st.cls:
-                ds.issue("error", "no_class", f"{st.name}: class is not known (XI or XII).", st.refs[0], sid=sid)
-            grp, note = infer_group(st.subjects, cfg.groups, st.group_given)
-            st.group, st.group_note = grp, note
-            if note and st.subjects:
-                ds.issue("warning" if st.group_given else "info", "group_check", f"{st.name}: {note}.", st.refs[0], sid=sid)
+                ds.issue("error", "no_class", f"{st.name}: class is not known (I to XII).", st.refs[0], sid=sid)
+            if cfg.has_streams(st.cls) or not st.cls:
+                grp, note = infer_group(st.subjects, cfg.groups, st.group_given)
+                st.group, st.group_note = grp, note
+                if note and st.subjects:
+                    ds.issue("warning" if st.group_given else "info", "group_check", f"{st.name}: {note}.", st.refs[0], sid=sid)
+            else:
+                st.group, st.group_note = "", ""
+            st.combo = combo_of(cfg, st.cls, st.subjects)
             for e in {m.exam for m in marks if m.sid == sid}:
                 if st.cls and e not in cfg.class_exams(st.cls):
                     ds.issue("warning", "exam_not_in_class",
@@ -656,9 +827,9 @@ class Builder:
                     ex = c["exam"] or lay["exam"]
                     groups.setdefault((c["subject"], ex), {})[c["component"]] = c
             for (subj, ex), parts in groups.items():
-                if "theory" not in parts or "practical" not in parts or ex not in cfg.exams:
+                if "theory" not in parts or "practical" not in parts or ex not in cfg.exams or subj == LANG_MARK:
                     continue
-                comps = cfg.components(subj, ex)
+                comps = cfg.components(lay.get("cls") or "XI", subj, ex)
                 pr_max = comps.get("practical")
                 th_max = comps.get("theory")
                 if not pr_max:
@@ -684,6 +855,18 @@ class Builder:
                              Ref(src.name, lay["sheet"]), subject=subj, exam=ex,
                              fix={"type": "swap", "source": src.id, "sheet": lay["sheet"],
                                   "cols": [parts["theory"]["col"], parts["practical"]["col"]]})
+
+
+def part_word(cfg, cls, m):
+    """How a part is called in messages: 'theory' (XI-XII) / 'written', 'practical' / 'internal', 'notebook', ..."""
+    c = m.component
+    if c == "theory":
+        return "theory" if cfg.has_streams(cls) else "written"
+    if c == "practical":
+        return (cfg.second_label(cls, m.subject, m.exam) or "practical").lower()
+    if c == "total":
+        return "total"
+    return cfg.part_label(c).lower()
 
 
 def _same_name(a, b):

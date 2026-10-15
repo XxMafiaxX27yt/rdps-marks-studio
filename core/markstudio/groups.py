@@ -52,3 +52,28 @@ def infer_group(subjects, groups, given=""):
     if fits[0][1] > fits[1][1]:
         return fits[0][0], f"Also fits Group {', '.join(f[0] for f in fits[1:])}; chose {names.get(fits[0][0], fits[0][0])}"
     return fits[0][0], f"Fits groups {' / '.join(ids)} equally - chose {fits[0][0]}; add a Group column to be exact"
+
+
+# subject combinations for Classes XI-XII (used to split the Excel marks sheets so that
+# every sheet only has the subjects its students take)
+COMBOS = [
+    ("PCMB", lambda s: {"042", "043", "041", "044"} <= s),
+    ("PCM", lambda s: {"042", "043", "041"} <= s and "044" not in s),
+    ("PCB", lambda s: {"042", "043", "044"} <= s and "041" not in s),
+    ("Commerce with Maths", lambda s: {"055", "054"} <= s and "041" in s),
+    ("Commerce", lambda s: {"055", "054"} <= s),
+    ("Humanities", lambda s: bool(s & {"028", "037", "027", "029", "039"})),
+    ("Science", lambda s: {"042", "043"} <= s),
+]
+
+
+def combo_of(cfg, cls, subjects):
+    """'PCM' / 'PCB' / 'PCMB' / 'Commerce with Maths' / 'Commerce' / 'Humanities' for Classes XI-XII,
+    '' for classes without streams (every student of the class has the same sheet)."""
+    if not cfg.has_streams(cls):
+        return ""
+    s = set(subjects)
+    for name, test in COMBOS:
+        if test(s):
+            return name
+    return "Other subjects" if s else ""

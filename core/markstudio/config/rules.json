@@ -4,70 +4,800 @@
   "school_short": "RDPS",
   "school_place": "Delhi",
   "academic_year": "2025-26",
-
   "classes": {
-    "XI": {"label": "Class XI", "aliases": ["11", "xi", "11th", "eleven", "eleventh", "class 11", "class xi"],
-            "exams": ["PT1", "HY", "PT2", "YE"]},
-    "XII": {"label": "Class XII", "aliases": ["12", "xii", "12th", "twelve", "twelfth", "class 12", "class xii"],
-             "exams": ["PT1", "HY", "PT2", "PB"]}
+    "I": {
+      "label": "Class I",
+      "level": 1,
+      "aliases": [
+        "1",
+        "i",
+        "1st",
+        "class 1",
+        "class i",
+        "std 1",
+        "grade 1"
+      ],
+      "exams": [
+        "PT1",
+        "HY",
+        "PT2",
+        "YE"
+      ]
+    },
+    "II": {
+      "label": "Class II",
+      "level": 2,
+      "aliases": [
+        "2",
+        "ii",
+        "2nd",
+        "class 2",
+        "class ii",
+        "std 2",
+        "grade 2"
+      ],
+      "exams": [
+        "PT1",
+        "HY",
+        "PT2",
+        "YE"
+      ]
+    },
+    "III": {
+      "label": "Class III",
+      "level": 3,
+      "aliases": [
+        "3",
+        "iii",
+        "3rd",
+        "class 3",
+        "class iii",
+        "std 3",
+        "grade 3"
+      ],
+      "exams": [
+        "PT1",
+        "HY",
+        "PT2",
+        "YE"
+      ]
+    },
+    "IV": {
+      "label": "Class IV",
+      "level": 4,
+      "aliases": [
+        "4",
+        "iv",
+        "4th",
+        "class 4",
+        "class iv",
+        "std 4",
+        "grade 4"
+      ],
+      "exams": [
+        "PT1",
+        "HY",
+        "PT2",
+        "YE"
+      ]
+    },
+    "V": {
+      "label": "Class V",
+      "level": 5,
+      "aliases": [
+        "5",
+        "v",
+        "5th",
+        "class 5",
+        "class v",
+        "std 5",
+        "grade 5"
+      ],
+      "exams": [
+        "PT1",
+        "HY",
+        "PT2",
+        "YE"
+      ]
+    },
+    "VI": {
+      "label": "Class VI",
+      "level": 6,
+      "aliases": [
+        "6",
+        "vi",
+        "6th",
+        "class 6",
+        "class vi",
+        "std 6",
+        "grade 6",
+        "six",
+        "sixth"
+      ],
+      "exams": [
+        "PT1",
+        "HY",
+        "PT2",
+        "YE"
+      ]
+    },
+    "VII": {
+      "label": "Class VII",
+      "level": 7,
+      "aliases": [
+        "7",
+        "vii",
+        "7th",
+        "class 7",
+        "class vii",
+        "std 7",
+        "grade 7",
+        "seven",
+        "seventh"
+      ],
+      "exams": [
+        "PT1",
+        "HY",
+        "PT2",
+        "YE"
+      ]
+    },
+    "VIII": {
+      "label": "Class VIII",
+      "level": 8,
+      "aliases": [
+        "8",
+        "viii",
+        "8th",
+        "class 8",
+        "class viii",
+        "std 8",
+        "grade 8",
+        "eight",
+        "eighth"
+      ],
+      "exams": [
+        "PT1",
+        "HY",
+        "PT2",
+        "YE"
+      ]
+    },
+    "IX": {
+      "label": "Class IX",
+      "level": 9,
+      "aliases": [
+        "9",
+        "ix",
+        "9th",
+        "class 9",
+        "class ix",
+        "std 9",
+        "grade 9",
+        "nine",
+        "ninth"
+      ],
+      "exams": [
+        "PT1",
+        "HY",
+        "PT2",
+        "YE"
+      ]
+    },
+    "X": {
+      "label": "Class X",
+      "level": 10,
+      "aliases": [
+        "10",
+        "x",
+        "10th",
+        "class 10",
+        "class x",
+        "std 10",
+        "grade 10",
+        "ten",
+        "tenth"
+      ],
+      "exams": [
+        "PT1",
+        "HY",
+        "PT2",
+        "PB"
+      ]
+    },
+    "XI": {
+      "label": "Class XI",
+      "level": 11,
+      "aliases": [
+        "11",
+        "xi",
+        "11th",
+        "class 11",
+        "class xi",
+        "std 11",
+        "grade 11",
+        "eleven",
+        "eleventh"
+      ],
+      "exams": [
+        "PT1",
+        "HY",
+        "PT2",
+        "YE"
+      ],
+      "streams": true
+    },
+    "XII": {
+      "label": "Class XII",
+      "level": 12,
+      "aliases": [
+        "12",
+        "xii",
+        "12th",
+        "class 12",
+        "class xii",
+        "std 12",
+        "grade 12",
+        "twelve",
+        "twelfth"
+      ],
+      "exams": [
+        "PT1",
+        "HY",
+        "PT2",
+        "PB"
+      ],
+      "streams": true
+    }
   },
-
   "exams": {
-    "PT1": {"name": "Periodic Test 1", "kind": "pt",
-            "aliases": ["pt1", "pt 1", "pt-1", "pt i", "periodic test 1", "periodic test i", "periodic test-1", "unit test 1", "ut1", "ut 1", "ut-1", "test 1", "first periodic test", "periodic 1"]},
-    "HY":  {"name": "Half Yearly", "kind": "major",
-            "aliases": ["hy", "half yearly", "half-yearly", "halfyearly", "half yearly exam", "mid term", "midterm", "mid-term", "term 1", "term i", "half year", "h.y.", "half yrly"]},
-    "PT2": {"name": "Periodic Test 2", "kind": "pt",
-            "aliases": ["pt2", "pt 2", "pt-2", "pt ii", "periodic test 2", "periodic test ii", "periodic test-2", "unit test 2", "ut2", "ut 2", "ut-2", "test 2", "second periodic test", "periodic 2"]},
-    "YE":  {"name": "Yearly", "kind": "major",
-            "aliases": ["ye", "yearly", "annual", "annual exam", "final", "final exam", "finals", "session ending", "year end", "yearly exam", "term 2", "term ii"]},
-    "PB":  {"name": "Preboard", "kind": "major",
-            "aliases": ["pb", "preboard", "pre board", "pre-board", "pre boards", "preboards", "pre-boards", "prebo"]}
+    "PT1": {
+      "name": "Periodic Test 1",
+      "kind": "pt",
+      "aliases": [
+        "pt1",
+        "pt 1",
+        "pt-1",
+        "pt i",
+        "periodic test 1",
+        "periodic test i",
+        "periodic test-1",
+        "unit test 1",
+        "ut1",
+        "ut 1",
+        "ut-1",
+        "test 1",
+        "first periodic test",
+        "periodic 1"
+      ]
+    },
+    "HY": {
+      "name": "Half Yearly",
+      "kind": "major",
+      "aliases": [
+        "hy",
+        "half yearly",
+        "half-yearly",
+        "halfyearly",
+        "half yearly exam",
+        "mid term",
+        "midterm",
+        "mid-term",
+        "term 1",
+        "term i",
+        "half year",
+        "h.y.",
+        "half yrly"
+      ]
+    },
+    "PT2": {
+      "name": "Periodic Test 2",
+      "kind": "pt",
+      "aliases": [
+        "pt2",
+        "pt 2",
+        "pt-2",
+        "pt ii",
+        "periodic test 2",
+        "periodic test ii",
+        "periodic test-2",
+        "unit test 2",
+        "ut2",
+        "ut 2",
+        "ut-2",
+        "test 2",
+        "second periodic test",
+        "periodic 2"
+      ]
+    },
+    "YE": {
+      "name": "Yearly",
+      "kind": "major",
+      "aliases": [
+        "ye",
+        "yearly",
+        "annual",
+        "annual exam",
+        "final",
+        "final exam",
+        "finals",
+        "session ending",
+        "year end",
+        "yearly exam",
+        "term 2",
+        "term ii"
+      ]
+    },
+    "PB": {
+      "name": "Preboard",
+      "kind": "major",
+      "aliases": [
+        "pb",
+        "preboard",
+        "pre board",
+        "pre-board",
+        "pre boards",
+        "preboards",
+        "pre-boards",
+        "prebo"
+      ]
+    }
   },
-
-  "max_marks": {
-    "pt":    {"theory_only": {"theory": 40}, "with_practical": {"theory": 40}},
-    "major": {"theory_only": {"theory": 80}, "with_practical": {"theory": 70, "practical": 30}}
+  "internal_pt_from": {
+    "_help": "Which periodic test becomes the 'PT (5)' part of the internal marks of a big exam.",
+    "HY": "PT1",
+    "YE": "PT2",
+    "PB": "PT2"
   },
-
+  "part_labels": {
+    "theory": "Written",
+    "i_pt": "PT (scaled)",
+    "i_portfolio": "Portfolio",
+    "i_project": "Project",
+    "i_notebook": "Notebook",
+    "p_viva": "Viva",
+    "p_notebook": "Practical notebook",
+    "p_file": "Practical file",
+    "p_test": "Practical test"
+  },
+  "mark_schemes": [
+    {
+      "_help": "First matching line wins. 'exams': pt or major (big exams). 'assessed': false = not counted at all. 'second' = the second part (internal or practical) with its parts; i_pt is worked out from the periodic test. 'optional': true = if a file has no columns for the second part, the subject is marked on the written paper alone."
+    },
+    {
+      "classes": [
+        "I",
+        "II",
+        "III",
+        "IV",
+        "V",
+        "VI"
+      ],
+      "subjects": [
+        "402"
+      ],
+      "assessed": false,
+      "note": "ICT: notebook only, not counted"
+    },
+    {
+      "classes": [
+        "VII",
+        "VIII",
+        "IX"
+      ],
+      "subjects": [
+        "402"
+      ],
+      "exams": "pt",
+      "assessed": false,
+      "note": "ICT has no periodic test"
+    },
+    {
+      "classes": [
+        "VII",
+        "VIII",
+        "IX"
+      ],
+      "subjects": [
+        "402"
+      ],
+      "exams": "major",
+      "theory": 30
+    },
+    {
+      "classes": [
+        "IX",
+        "X"
+      ],
+      "subjects": [
+        "843"
+      ],
+      "exams": "pt",
+      "theory": 40
+    },
+    {
+      "classes": [
+        "IX",
+        "X"
+      ],
+      "subjects": [
+        "843"
+      ],
+      "exams": "major",
+      "theory": 50,
+      "second": {
+        "label": "Practical",
+        "parts": [
+          [
+            "p_viva",
+            5
+          ],
+          [
+            "p_notebook",
+            5
+          ],
+          [
+            "p_file",
+            10
+          ],
+          [
+            "p_test",
+            30
+          ]
+        ],
+        "optional": true
+      }
+    },
+    {
+      "classes": [
+        "I",
+        "II",
+        "III",
+        "IV",
+        "V",
+        "VI",
+        "VII",
+        "VIII"
+      ],
+      "exams": "pt",
+      "theory": 20
+    },
+    {
+      "classes": [
+        "IX",
+        "X"
+      ],
+      "exams": "pt",
+      "theory": 40
+    },
+    {
+      "classes": [
+        "I",
+        "II",
+        "III",
+        "IV",
+        "V",
+        "VI",
+        "VII",
+        "VIII",
+        "IX",
+        "X"
+      ],
+      "exams": "major",
+      "theory": 80,
+      "second": {
+        "label": "Internal",
+        "parts": [
+          [
+            "i_pt",
+            5
+          ],
+          [
+            "i_portfolio",
+            5
+          ],
+          [
+            "i_project",
+            5
+          ],
+          [
+            "i_notebook",
+            5
+          ]
+        ],
+        "optional": true
+      }
+    },
+    {
+      "classes": [
+        "XI",
+        "XII"
+      ],
+      "exams": "pt",
+      "theory": 40
+    },
+    {
+      "classes": [
+        "XI",
+        "XII"
+      ],
+      "exams": "major",
+      "practical_subjects": true,
+      "theory": 70,
+      "second": {
+        "label": "Practical",
+        "max": 30
+      }
+    },
+    {
+      "classes": [
+        "XI",
+        "XII"
+      ],
+      "exams": "major",
+      "theory": 80
+    }
+  ],
+  "class_subjects": {
+    "_help": "Subjects every student of the class takes (junior classes). 'language' = pick one of these per student.",
+    "I-VI": {
+      "classes": [
+        "I",
+        "II",
+        "III",
+        "IV",
+        "V",
+        "VI"
+      ],
+      "subjects": [
+        "301",
+        "302",
+        "041",
+        "086",
+        "087",
+        "402"
+      ],
+      "language": [
+        "122",
+        "018",
+        "020",
+        "096"
+      ]
+    },
+    "VII-VIII": {
+      "classes": [
+        "VII",
+        "VIII"
+      ],
+      "subjects": [
+        "301",
+        "302",
+        "041",
+        "086",
+        "087",
+        "402"
+      ],
+      "language": [
+        "122",
+        "018",
+        "020",
+        "096"
+      ]
+    },
+    "IX": {
+      "classes": [
+        "IX"
+      ],
+      "subjects": [
+        "301",
+        "302",
+        "041",
+        "086",
+        "087",
+        "402",
+        "843"
+      ],
+      "language": [
+        "122",
+        "018",
+        "020",
+        "096"
+      ]
+    },
+    "X": {
+      "classes": [
+        "X"
+      ],
+      "subjects": [
+        "301",
+        "041",
+        "086",
+        "087",
+        "843"
+      ],
+      "language": [
+        "302",
+        "122",
+        "018",
+        "020",
+        "096"
+      ]
+    }
+  },
   "pass_percent": 33,
+  "distinction_percent": 75,
   "pass_each_part": true,
-
   "strong_gap": 5,
   "weak_gap": 5,
   "attention_class_gap": 10,
   "drop_alert_gap": 5,
-
   "leave_codes": [
-    {"code": "AB", "label": "Absent", "counts_as_fail": true,
-     "aliases": ["ab", "a", "abs", "absent", "ab.", "a.b.", "abst"]},
-    {"code": "ML", "label": "Medical leave", "counts_as_fail": false,
-     "aliases": ["ml", "m.l.", "m.l", "med", "medical", "medical leave"]},
-    {"code": "DL", "label": "Duty leave", "counts_as_fail": false,
-     "aliases": ["dl", "d.l.", "d.l", "duty", "duty leave", "sports", "sports leave", "sl"]},
-    {"code": "EX", "label": "Exempted", "counts_as_fail": false,
-     "aliases": ["ex", "exempt", "exempted", "exm", "exem"]},
-    {"code": "NA", "label": "Not applicable", "counts_as_fail": false,
-     "aliases": ["na", "n/a", "n.a.", "-", "--", "nil", "not applicable"]}
+    {
+      "code": "AB",
+      "label": "Absent",
+      "counts_as_fail": true,
+      "aliases": [
+        "ab",
+        "a",
+        "abs",
+        "absent",
+        "ab.",
+        "a.b.",
+        "abst"
+      ]
+    },
+    {
+      "code": "ML",
+      "label": "Medical leave",
+      "counts_as_fail": false,
+      "aliases": [
+        "ml",
+        "m.l.",
+        "m.l",
+        "med",
+        "medical",
+        "medical leave"
+      ]
+    },
+    {
+      "code": "DL",
+      "label": "Duty leave",
+      "counts_as_fail": false,
+      "aliases": [
+        "dl",
+        "d.l.",
+        "d.l",
+        "duty",
+        "duty leave",
+        "sports",
+        "sports leave",
+        "sl"
+      ]
+    },
+    {
+      "code": "EX",
+      "label": "Exempted",
+      "counts_as_fail": false,
+      "aliases": [
+        "ex",
+        "exempt",
+        "exempted",
+        "exm",
+        "exem"
+      ]
+    },
+    {
+      "code": "NA",
+      "label": "Not applicable",
+      "counts_as_fail": false,
+      "aliases": [
+        "na",
+        "n/a",
+        "n.a.",
+        "-",
+        "--",
+        "nil",
+        "not applicable"
+      ]
+    }
   ],
   "blank_means": "AB",
-
   "grades": [
-    {"grade": "A1", "min": 91},
-    {"grade": "A2", "min": 81},
-    {"grade": "B1", "min": 71},
-    {"grade": "B2", "min": 61},
-    {"grade": "C1", "min": 51},
-    {"grade": "C2", "min": 41},
-    {"grade": "D",  "min": 33},
-    {"grade": "E",  "min": 0}
+    {
+      "grade": "A1",
+      "min": 91
+    },
+    {
+      "grade": "A2",
+      "min": 81
+    },
+    {
+      "grade": "B1",
+      "min": 71
+    },
+    {
+      "grade": "B2",
+      "min": 61
+    },
+    {
+      "grade": "C1",
+      "min": 51
+    },
+    {
+      "grade": "C2",
+      "min": 41
+    },
+    {
+      "grade": "D",
+      "min": 33
+    },
+    {
+      "grade": "E",
+      "min": 0
+    }
   ],
-
-  "score_bins": [0, 33, 40, 50, 60, 70, 80, 90, 100],
-
+  "score_bins": [
+    0,
+    33,
+    40,
+    50,
+    60,
+    70,
+    80,
+    90,
+    100
+  ],
   "board": {
-    "language_codes": ["301", "302", "322", "184", "085", "002"],
-    "pi_weights": {"A1": 8, "A2": 7, "B1": 6, "B2": 5, "C1": 4, "C2": 3, "D1": 2, "D2": 1, "E": 0},
-    "fail_grades": ["E"]
+    "language_codes": [
+      "301",
+      "302",
+      "322",
+      "184",
+      "085",
+      "002",
+      "122",
+      "018",
+      "020",
+      "096"
+    ],
+    "pi_weights": {
+      "A1": 8,
+      "A2": 7,
+      "B1": 6,
+      "B2": 5,
+      "C1": 4,
+      "C2": 3,
+      "D1": 2,
+      "D2": 1,
+      "E": 0
+    },
+    "fail_grades": [
+      "E"
+    ],
+    "x_names": {
+      "_help": "Subject names for Class X board codes (where they differ from the school's)",
+      "184": "English (Lang & Lit)",
+      "002": "Hindi Course A",
+      "085": "Hindi Course B",
+      "041": "Mathematics (Standard)",
+      "241": "Mathematics (Basic)",
+      "417": "Artificial Intelligence",
+      "402": "Information Technology"
+    },
+    "school_code_map": {
+      "_help": "Board subject code -> the school's subject code, to compare school and board marks",
+      "184": "301",
+      "002": "302",
+      "085": "302",
+      "417": "843",
+      "322": "302"
+    }
+  },
+  "settings_version": 2,
+  "junior_subject_alias": {
+    "_help": "In Classes I-X a heading read as one of these subjects means the other one",
+    "083": "402",
+    "065": "402",
+    "241": "041"
   }
 }

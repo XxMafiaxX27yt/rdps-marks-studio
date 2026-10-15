@@ -10,6 +10,14 @@ import re
 from .textutil import norm, clean, parse_number
 
 # ---------------------------------------------------------------- vocabulary
+# "Language" column: numbers = the marks of each student's own language (French / German / ...),
+# text = which language the student takes
+LANG_WORDS = ["language", "2nd language", "second language", "3rd language", "third language", "optional language",
+              "foreign language", "language subject", "language opted", "language chosen", "hindi or language",
+              "hindi language", "hindi or other language", "lang", "ii language", "iii language", "2nd lang", "3rd lang"]
+LANG_MARK = "@LANG"
+LANG_PHRASES = {" ".join(p.split()) for p in LANG_WORDS}
+
 FIELD_WORDS = [
     # (role, phrases) - checked in this order, first match wins
     ("sno", ["s no", "sno", "sr no", "srno", "sl no", "slno", "serial", "serial no", "s n", "sr", "s r no", "no"]),
@@ -28,6 +36,7 @@ FIELD_WORDS = [
     ("section", ["section", "sec", "div", "division"]),
     ("group", ["group", "stream", "grp", "subject group"]),
     ("gender", ["gender", "sex", "m f", "boy girl"]),
+    ("lang_slot", LANG_WORDS),
     ("choice", ["subject 1", "subject 2", "subject 3", "subject 4", "subject 5", "subject 6", "subject 7",
                 "sub 1", "sub 2", "sub 3", "sub 4", "sub 5", "sub 6", "optional", "optional subject", "elective",
                 "elective subject", "additional subject", "subjects", "subjects taken", "subject combination"]),
@@ -40,10 +49,54 @@ FIELD_WORDS = [
                 "promoted", "status", "overall grade", "cgpa", "gpa"]),
 ]
 
-THEORY_WORDS = {"th", "theory", "thy", "theo", "written", "wr", "theor", "thry"}
+THEORY_WORDS = {"th", "theory", "thy", "theo", "written", "wr", "theor", "thry", "w", "wt", "writ"}
 PRACTICAL_WORDS = {"pr", "prac", "practical", "practicals", "pract", "lab", "prc", "prctl"}
+INTERNAL_WORDS = {"internal", "internals", "int", "ia", "i a", "internal assessment", "int assessment", "int ass",
+                  "internal marks", "ia marks"}
 TOTAL_WORDS = {"total", "tot", "ttl"}
+# parts of the internal assessment / AI practical (more specific phrases first)
+PART_WORDS = [
+    ("viva", ["viva voce", "viva", "oral"]),
+    ("file", ["practical file", "prac file", "pr file", "lab file", "record file", "file", "record"]),
+    ("ptest", ["practical test", "prac test", "pr test", "lab test", "practical exam"]),
+    ("notebook", ["notebook submission", "note book", "notebook", "nbk", "nb", "notebooks", "copy", "nb submission"]),
+    ("portfolio", ["portfolio", "portfolios", "port folio", "pf", "port"]),
+    ("project", ["subject enrichment", "project", "projects", "proj", "prj", "activity"]),
+    ("pt5", ["pt part", "pt 5", "pt5", "periodic test part", "pt scaled", "pt out of 5", "pt in internal"]),
+]
+PART_KEYS = {"notebook": ("i_notebook", "p_notebook"), "portfolio": ("i_portfolio",), "project": ("i_project",),
+             "viva": ("p_viva",), "file": ("p_file",), "ptest": ("p_test",), "pt5": ("i_pt",)}
 LONG_MARK_WORDS = {"marks", "marks obtained", "mark", "score", "obtained", "mo", "marks obt"}
+
+# ---------------------------------------------------------------- classes I-XII
+ROMANS = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"]
+CLASS_TOKEN = r"(xii|xi|x|ix|viii|vii|vi|v|iv|iii|ii|i|12|11|10|9|8|7|6|5|4|3|2|1)"
+_SAFE_LONE = {"xii", "xi", "ix", "viii", "vii", "vi", "iv", "6th", "7th", "8th", "9th", "10th", "11th", "12th",
+              "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "sixth", "seventh", "eighth", "ninth", "tenth",
+              "eleventh", "twelfth"}
+
+
+def to_class(tok):
+    """'12' / 'xii' -> 'XII', '6' / 'vi' -> 'VI'."""
+    t = tok.lower()
+    if t.isdigit():
+        n = int(t)
+        return ROMANS[n - 1] if 1 <= n <= 12 else None
+    return t.upper() if t.upper() in ROMANS else None
+
+
+def class_token_match(n):
+    """Whole text is a class with an optional section: 'xi', '6', 'via', '11 a', 'class 9-c', '10th b' -> ('IX', 'C')."""
+    t = n.strip()
+    m = re.match(r"^(?:class|std|grade|standard)?\s*" + CLASS_TOKEN + r"(?:st|nd|rd|th)?\s*[-/ ]?\s*([a-h])?$", t)
+    if not m:
+        return None
+    cls = to_class(m.group(1))
+    return (cls, (m.group(2) or "").upper()) if cls else None
+
+
+def _safe_lone_class(tok):
+    return tok in _SAFE_LONE
 
 
 class Vocab:
@@ -113,20 +166,32 @@ class Vocab:
 
     def find_class(self, text):
         n = norm(text)
+        # the whole text is a class (+ section): "XI", "6", "via", "11a", "xii-b", "class 9 c"
+        cs = class_token_match(n)
+        if cs:
+            return cs[0]
         toks = n.split()
         for k in range(min(3, len(toks)), 0, -1):
             for i in range(len(toks) - k + 1):
                 ph = " ".join(toks[i:i + k])
-                if ph in self.class_phrases:
-                    return self.class_phrases[ph]
-        # glued forms like "xia", "11a", "xii-b" -> class + section
-        m = re.match(r"^(xii|xi|12|11)(th)?\s*[- ]?\s*([a-z])?$", n.replace(" ", ""))
-        if m:
-            return "XII" if m.group(1) in ("xii", "12") else "XI"
+                if ph not in self.class_phrases:
+                    continue
+                # a lone "1", "i", "v", "x" or "2nd" inside longer text ("Sheet 1", "Term I", "2nd term")
+                # is not a class; "class 1" / "XI" / "eleventh" are
+                if k == 1 and not _safe_lone_class(ph):
+                    continue
+                return self.class_phrases[ph]
         return None
 
     def find_component(self, text, bottom_cell=None):
-        toks = set(norm(text).split())
+        n = norm(text)
+        for key, phrases in PART_WORDS:
+            for p in phrases:
+                if re.search(r"(^| )" + re.escape(p) + r"( |$)", n):
+                    return key
+        toks = set(n.split())
+        if n in INTERNAL_WORDS or toks & {"internal", "internals", "ia", "int"} or "internal assessment" in n:
+            return "practical"
         if toks & PRACTICAL_WORDS:
             return "practical"
         if toks & THEORY_WORDS:
@@ -161,16 +226,17 @@ class Vocab:
         return None
 
     def class_section(self, text):
-        """'XI-A' -> ('XI','A'); 'XII Sci B' -> ('XII','B'); '11' -> ('XI','')"""
+        """'XI-A' -> ('XI','A'); 'XII Sci B' -> ('XII','B'); '11' -> ('XI',''); '6th C' -> ('VI','C')"""
         t = clean(text)
         n = norm(t)
         if not n:
             return None, ""
-        m = re.match(r"^(class\s+)?(xii|xi|12|11)(th)?\s*[-/ ]?\s*(.*)$", n)
+        m = re.match(r"^(?:class\s+|std\s+|grade\s+|standard\s+)?" + CLASS_TOKEN + r"(?:st|nd|rd|th)?(?![0-9a-z])\s*[-/ ]?\s*(.*)$", n) \
+            or re.match(r"^(?:class\s+|std\s+|grade\s+|standard\s+)?" + CLASS_TOKEN + r"(?:st|nd|rd|th)?\s*[-/ ]?\s*([a-h])$", n)
         if not m:
             return self.find_class(t), ""
-        cls = "XII" if m.group(2) in ("xii", "12") else "XI"
-        rest = m.group(4).strip().split()
+        cls = to_class(m.group(1))
+        rest = m.group(2).strip().split()
         sec = ""
         if rest:
             last = rest[-1]
@@ -248,6 +314,16 @@ def detect(sheet, file_name, cfg, vocab=None):
                 r -= 1
             else:
                 break
+        # a row just below made of part names (Th / Pr, Written / Portfolio / Notebook ...) belongs to the headings
+        r = best + 1
+        while r < len(rows) and len(header) < 3:
+            cells = [clean(x) for x in rows[r] if clean(x)]
+            if cells and not any(parse_number(x) is not None for x in cells) and \
+                    sum(1 for x in cells if vocab.find_component(x, x)) >= max(1, len(cells) * 0.6):
+                header.append(r)
+                r += 1
+            else:
+                break
         data_start = header[-1] + 1
     title_rows = rows[:header[0]] if header else []
     title_text = " ".join(clean(c) for r in title_rows for c in r if clean(c))
@@ -294,9 +370,15 @@ def detect(sheet, file_name, cfg, vocab=None):
             if cl:
                 lay["cls"], lay["cls_from"] = cl, src
     if not lay["section"]:
-        m = re.search(r"\b(?:xii|xi|12|11)(?:th)?\s*[-/ ]\s*([a-h])\b", norm(title_text + " " + sheet.name))
-        if m:
-            lay["section"] = m.group(1).upper()
+        # "XI-A", "6th / B" (a dash or slash is needed), or "Class 9 C"
+        low = (clean(title_text) + " " + clean(sheet.name)).lower()
+        m = re.search(r"\b" + CLASS_TOKEN + r"(?:st|nd|rd|th)?\s*[-/]\s*([a-h])\b", low) \
+            or re.search(r"\b(?:class|std|grade)\s*" + CLASS_TOKEN + r"(?:st|nd|rd|th)?\s*[-/ ]?\s*([a-h])\b", low)
+        cs = class_token_match(norm(sheet.name))
+        if m and to_class(m.group(1)):
+            lay["section"] = m.group(2).upper()
+        elif cs and cs[1]:
+            lay["section"] = cs[1]
 
     body = rows[data_start:]
     # a "maximum marks" row right under the headings
@@ -328,6 +410,16 @@ def detect(sheet, file_name, cfg, vocab=None):
         subj = vocab.find_subject(h) if h else None
         comp = vocab.find_component(h, bottom) if h else None
         exam = vocab.find_exam(h) if h else None
+        if field == "lang_slot" and subj and norm(h) not in LANG_PHRASES:
+            field = None                      # "English Language and Literature" is English, not a language slot
+        if field == "lang_slot":
+            if (prof["numeric"] + prof["leaves"]) >= max(1, prof["count"] * 0.5) and prof["count"]:
+                col.update(role="mark", subject=LANG_MARK, component=comp, exam=exam,
+                           why="Marks of each student's own language (from the Language column of the student list)")
+            else:
+                col.update(role="lang_choice", why="Which language each student takes")
+            cols.append(col)
+            continue
         # a heading like "Physics" wins over the generic word "total"/"marks"
         if subj and field in (None, "file_total", "file_percent", "ignore", "row_subject", "choice", "group", "class"):
             if field == "choice":
@@ -385,36 +477,56 @@ def detect(sheet, file_name, cfg, vocab=None):
 
 def _class_in_title(text, vocab):
     n = norm(text)
-    m = re.search(r"\b(?:class|std)\s*(xii|xi|12|11)(?:th)?\b", n) or re.search(r"\b(xii|xi)\b", n)
+    m = re.search(r"\b(?:class|std|grade|standard)\s*" + CLASS_TOKEN + r"(?:st|nd|rd|th)?\b", n) \
+        or re.search(r"\b(xii|xi|ix|viii|vii|vi|iv)\b", n) \
+        or re.search(r"\b(12|11|10|[6-9])th\b", n)
     if m:
-        return "XII" if m.group(1) in ("xii", "12") else "XI"
+        return to_class(m.group(1))
     return None
 
 
 def _settle_components(cols, lay, cfg, body):
-    """Decide theory / practical / total for every mark column, and flag anything uncertain."""
+    """Decide theory / practical / total for every mark column, and flag anything uncertain.
+    Columns for parts of the internal assessment (portfolio, notebook, ...) are left as they are."""
+    cls = lay.get("cls") or "XI"
     groups = {}
     for c in cols:
-        if c["role"] == "mark" and c["subject"]:
+        if c["role"] == "mark" and c["subject"] and c["component"] not in PART_KEYS:
             groups.setdefault((c["subject"], c["exam"] or lay["exam"]), []).append(c)
     for (subj, exam), cs in groups.items():
         kind = cfg.exam_kind(exam) if exam in cfg.exams else None
-        prac = cfg.has_practical(subj)
+        rep = subj if subj != LANG_MARK else ((cfg.languages_for(cls) or ["302"])[0])
+        name = cfg.subject_name(subj) if subj != LANG_MARK else "Language"
+        sc = cfg.scheme(cls, rep, exam) if kind else None
+        second = sc["second"] if sc else None
+        prac = cfg.has_practical(rep) if not kind else bool(second and not second["optional"])
         if not prac or kind == "pt":
+            th_max = sc["theory"] if sc else None
             for c in cs:
                 if c["component"] in (None, "theory"):
                     c["component"] = "theory"
                 elif c["component"] == "practical":
-                    c["sure"] = False
-                    c["why"] = (f"{cfg.subject_name(subj)} has no practical in "
-                                f"{'periodic tests' if kind == 'pt' else 'this school'}, but this column says practical - please check")
+                    if not second:
+                        c["sure"] = False
+                        c["why"] = (f"{name} has no practical in "
+                                    f"{'periodic tests' if kind == 'pt' else 'this school'}, but this column says practical - please check")
                 elif c["component"] == "total":
-                    c["component"] = "theory"
-                    c["why"] = "Total of a theory-only subject = its marks"
-            if len(cs) > 1:
-                for c in cs:
-                    c["sure"] = False
-                    c["why"] = f"More than one column for {cfg.subject_name(subj)} - please choose which one to use"
+                    if not second:
+                        c["component"] = "theory"
+                        c["why"] = "Total of a theory-only subject = its marks"
+            if second and len(cs) == 1 and cs[0]["component"] == "theory" and th_max is not None:
+                prof = _profile(body, cs[0]["col"], cfg)
+                if prof["max"] is not None and prof["max"] > th_max:
+                    cs[0]["component"] = "total"
+                    cs[0]["sure"] = False
+                    cs[0]["why"] = (f"One column for {name} with marks above {th_max}: read as the total out of "
+                                    f"{th_max + second['max']} ({cfg.part_label('theory').lower()} + {second['label'].lower()}) - please confirm")
+            for comp in ("theory", "practical", "total"):
+                same = [c for c in cs if c["component"] == comp]
+                if len(same) > 1:
+                    for c in same:
+                        c["sure"] = False
+                        c["why"] = f"More than one column for {name} - please choose which one to use"
             continue
         # practical subject in a big exam (or exam not known yet)
         unlabeled = [c for c in cs if c["component"] is None]
@@ -431,20 +543,20 @@ def _settle_components(cols, lay, cfg, body):
         elif len(cs) == 1 and unlabeled:
             c = cs[0]
             prof = _profile(body, c["col"], cfg)
-            th_max = cfg.components(subj, exam)["theory"] if kind else None
+            th_max = cfg.components(cls, rep, exam)["theory"] if kind else None
             if kind and prof["max"] is not None and prof["max"] > th_max:
                 c["component"] = "total"
-                c["why"] = f"One column for {cfg.subject_name(subj)} with marks above {th_max}: read as the total out of 100 (theory + practical)"
+                c["why"] = f"One column for {name} with marks above {th_max}: read as the total out of 100 (theory + practical)"
                 c["sure"] = False
             else:
                 c["component"] = "theory"
                 c["sure"] = False
-                c["why"] = (f"Only one column for {cfg.subject_name(subj)}. Is it theory only (out of "
+                c["why"] = (f"Only one column for {name}. Is it theory only (out of "
                             f"{th_max if th_max else '70'}) or the total (out of 100)? Please confirm")
         if sum(1 for c in cs if c["component"] == "theory") > 1 or sum(1 for c in cs if c["component"] == "practical") > 1:
             for c in cs:
                 c["sure"] = False
-                c["why"] = f"Several columns for {cfg.subject_name(subj)} {c['component']} - please choose which to use"
+                c["why"] = f"Several columns for {name} {c['component']} - please choose which to use"
 
 
 def _check_required(cols, lay, cfg):
