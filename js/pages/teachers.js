@@ -15,6 +15,7 @@ export async function syncTeachers() {
   if (!S.engineReady) return;
   const out = await engine.call("set_teachers", JSON.stringify(loadSaved()));
   S.teacherLists = out;
+  S.board = null;                         // the board page shows teachers too
 }
 
 function save(list) {
@@ -176,6 +177,7 @@ export function mount(root) {
     if (b.dataset.delfile !== undefined) {
       S.teacherLists = await engine.call("remove_file_teacher", b.dataset.delfile, b.dataset.subj);
       analysis = null;
+      S.board = null;
       toast(`${esc(b.dataset.delfile)} removed.`, "ok");
       rerender();
       return;
@@ -186,6 +188,7 @@ export function mount(root) {
       editing = null;
       S.teacherLists = await engine.call("remove_all_teachers");
       analysis = null;
+      S.board = null;
       toast("All teachers removed.", "ok");
       rerender();
       return;
