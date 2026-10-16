@@ -43,7 +43,8 @@ export function html() {
       <button class="btn btn-ghost btn-sm" data-edit="${i}">Edit</button><button class="btn btn-ghost btn-sm" data-del="${i}">Remove</button></div>`).join("");
   const filesList = fromFiles.map((t) => `<div class="file-row"><span class="ficon">XLS</span>
       <div style="flex:1;min-width:0"><div class="fname">${esc(t.name)}</div>
-      <div class="tiny muted">${esc(t.subject_text || t.subject)} · ${esc(t.classes.join(", ") || "no classes")} · from ${esc(t.source || "a file")}</div></div></div>`).join("");
+      <div class="tiny muted">${esc(t.subject_text || t.subject)} · ${esc(t.classes.join(", ") || "no classes")} · from ${esc(t.source || "a file")}</div></div>
+      <button class="btn btn-ghost btn-sm" data-delfile="${esc(t.name)}" data-subj="${esc(t.subject || t.subject_text)}">Remove</button></div>`).join("");
   return `<div class="page-head"><div><h1>Teachers ${qmark("teachers")}</h1>
       <p>Add each teacher once with the subject and classes they teach. The tool then shows how those students do in that subject - and puts the same analysis in the Excel file.</p></div></div>
     <div class="grid g3">
@@ -65,7 +66,8 @@ export function html() {
             ${editing !== null ? `<button class="btn btn-ghost" id="t-cancel">Cancel</button>` : ""}</div>
         </div></div>
       <div class="card span2"><div class="card-head"><h3>Teachers (${typed.length + fromFiles.length})</h3>
-          <span class="muted small">Saved in this browser. A “Teachers” sheet in an uploaded file is read too.</span></div>
+          <div class="row"><span class="muted small">Saved in this browser. A “Teachers” sheet in an uploaded file is read too.</span>
+          ${typed.length + fromFiles.length ? `<button class="btn btn-danger btn-sm" id="t-clear">Remove all</button>` : ""}</div></div>
         ${list || filesList ? `<div class="stack">${list}${filesList}</div>` : `<div class="empty muted">No teachers yet. Add one on the left - for example Physics, XI-A and XII-A.</div>`}
       </div>
     </div>
@@ -77,9 +79,9 @@ function analysisHtml(a) {
   if (!a.cards.length) return `<div class="note">Add a teacher above to see their analysis.</div>`;
   const cmp = a.comparison.filter((b) => b.rows.length).map((b) => `<div class="card"><div class="card-head"><h3>${esc(b.name)} ${qmark("teacher-compare")}</h3>
       <span class="muted small">latest exam of each class</span></div>
-      ${table(["Teacher", "Classes", "Students", "Average %", "Pass %", "vs own average", "Change since first exam", "Not passed"],
-        b.rows.map((r) => [r.name, r.classes, r.students_latest, r.avg, r.pass_pct,
-          { html: signed(r.vs_own) }, { html: signed(r.change) }, r.not_passed]), { numeric: [2, 3, 4, 5, 6, 7] })}</div>`).join("");
+      ${table(["Teacher", "Classes", "Students", "Average %", "Pass %", "Fair check", "Effect (likely range)", "Change since first exam"],
+        b.rows.map((r) => [r.name, r.classes, r.students_latest, r.avg, r.pass_pct, { html: verdict(r.fair) }, { html: range(r.fair) },
+          { html: signed(r.change) }]), { numeric: [2, 3, 4, 7] })}</div>`).join("");
   const cards = a.cards.map((c, k) => {
     const o = c.overall;
     const secs = c.sections.filter((x) => !x.missing);
@@ -89,7 +91,7 @@ function analysisHtml(a) {
     return `<div class="card t-card">
       <div class="card-head"><div><h3>${esc(c.name)}</h3><div class="muted small">${esc(c.subject_name)} · ${esc(c.classes.join(", "))}</div></div>
         <div class="row">${o ? `<div class="mini-kpi"><b>${fmt(o.avg)}</b><span>avg %</span></div><div class="mini-kpi"><b>${fmt(o.pass_pct)}</b><span>pass %</span></div>
-          <div class="mini-kpi"><b>${signed(o.vs_own)}</b><span>vs own avg ${qmark("teachers")}</span></div>` : ""}</div></div>
+          <div class="mini-kpi"><b style="font-size:.9rem">${verdict(c.fair)}</b><span>fair check ${qmark("teachers")}</span></div>` : ""}</div></div>
       ${secs.length ? `<div class="chart-box" style="height:220px"><canvas id="tc-${k}"></canvas></div>` : ""}
       ${table(["Class", "Exam", "Students", "Average %", "Pass %", "vs own avg", "vs class avg"],
         secs.flatMap((x) => x.by_exam.map((e) => [x.label, e.name, e.n, e.avg, e.pass_pct, { html: signed(e.vs_own) }, { html: signed(e.vs_class) }])),
@@ -100,8 +102,20 @@ function analysisHtml(a) {
       }).join("")}</div>` : ""}
       <ul class="remarks small">${c.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></div>`;
   }).join("");
-  return `<h2 style="margin:6px 0 14px">Side by side</h2><div class="grid g2">${cmp || `<div class="note">Each subject has one teacher so far.</div>`}</div>
+  return `<div class="note" style="margin-bottom:16px">⚖️ <b>Marks show only part of teaching.</b> The fair check compares each student with what that same student usually gets in their other subjects, leaves out students who are low in every subject, and only says “clear” when the whole likely range is above or below zero. Use it to start a conversation, not to decide.</div>
+    <h2 style="margin:6px 0 14px">Side by side</h2><div class="grid g2">${cmp || `<div class="note">Each subject has one teacher so far.</div>`}</div>
     <h2 style="margin:26px 0 14px">Teacher by teacher</h2><div class="grid g2">${cards}</div>`;
+}
+
+function verdict(f) {
+  if (!f) return "–";
+  const cls = { "Clear positive impact": "b-strong", "Worth a conversation": "b-weak", "No clear difference": "b-track" }[f.verdict] || "b-leave";
+  return `<span class="badge ${cls}">${esc(f.verdict)}</span>`;
+}
+
+function range(f) {
+  if (!f || f.effect === null || f.effect === undefined) return "–";
+  return `${signed(f.effect)} <span class="muted small">(${fmt(f.low)} to ${fmt(f.high)})</span>`;
 }
 
 function signed(v) {
@@ -159,6 +173,23 @@ export function mount(root) {
     }
     if (b.id === "t-cancel") { editing = null; rerender(); }
     if (b.dataset.edit !== undefined) { editing = +b.dataset.edit; rerender(); window.scrollTo({ top: 0, behavior: "smooth" }); }
+    if (b.dataset.delfile !== undefined) {
+      S.teacherLists = await engine.call("remove_file_teacher", b.dataset.delfile, b.dataset.subj);
+      analysis = null;
+      toast(`${esc(b.dataset.delfile)} removed.`, "ok");
+      rerender();
+      return;
+    }
+    if (b.id === "t-clear") {
+      if (!confirm("Remove ALL teachers - the ones typed here and the ones read from uploaded files?")) return;
+      LS.set("rdps.teachers", []);
+      editing = null;
+      S.teacherLists = await engine.call("remove_all_teachers");
+      analysis = null;
+      toast("All teachers removed.", "ok");
+      rerender();
+      return;
+    }
     if (b.dataset.del !== undefined) {
       list.splice(+b.dataset.del, 1);
       editing = null;

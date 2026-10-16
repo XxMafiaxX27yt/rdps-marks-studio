@@ -31,11 +31,14 @@ who's whats what's who is did does have has had not no yes""".split())
 
 # "week"/"weekest" are how speech-to-text often writes "weak"/"weakest"
 WEAK = ["weak", "weakest", "week", "weekest", "poor", "struggling", "struggle", "bad at", "kamzor", "kamjor", "not good",
-        "needs improvement"]
-STRONG = ["strong", "good at", "good in", "better in", "achha in", "accha in", "excellent", "best at", "achha", "acha", "accha", "great at", "strongest"]
+        "needs improvement", "peeche", "pichhe", "piche", "behind", "lagging", "low scorers", "low scoring", "scoring low",
+        "low marks", "less marks", "kam marks", "extra classes", "extra help", "remedial", "slow learners", "weak students"]
+STRONG = ["strong", "good at", "good in", "better in", "achha in", "accha in", "excellent", "best at", "achha", "acha", "accha",
+          "great at", "strongest", "achhe", "acche", "high scorers", "high marks", "scoring high", "bright students", "aage"]
 ATTENTION = ["needs attention", "need attention", "attention", "needs help", "need help", "at risk", "concern", "critical",
              "needs support", "need support", "help needed"]
-FAIL = ["fail", "failed", "failing", "not passed", "did not pass", "didn't pass", "below pass", "below the pass", "flunk"]
+FAIL = ["fail", "failed", "failing", "not passed", "did not pass", "didn't pass", "below pass", "below the pass", "flunk",
+        "flunked", "flunking", "fail hue", "fail hua", "fail ho"]
 PASSW = ["passed"]
 ABSENT = ["absent", "missed", "gair hazir", "did not appear", "didn't appear"]
 LEAVE = ["medical", "leave", "on leave", "ml", "duty leave"]
@@ -130,6 +133,8 @@ class Understander:
                (r"(\d{1,3}(?:\.\d+)?)\s*%?\s*(?:se kam|or less|and below|or below)", "<="),
                (r"(\d{1,3}(?:\.\d+)?)\s*%?\s*(?:se zyada|se jyada|or more|and above|or above|plus|\+)", ">=")]
         self._thresholds = []
+        # "2 or more subjects" is a number of subjects, not a mark
+        work = re.sub(r"\b(\d+|two|three|four)\s*(?:or more|\+|or above)?\s+subjects?\b", " ", work)
         for pat, op in thr:
             for mm in re.finditer(pat, work):
                 if op == "between":
@@ -365,7 +370,9 @@ class Understander:
                                                       "subjectwise", "subject toppers", "subject topper", "all subjects",
                                                       "har subject"]):
             return "toppers_by_subject", "keyword"
-        if not has_student and _has(low, ["which section", "what section", "kaun sa section", "konsa section"]):
+        if not has_student and _has(low, ["which section", "what section", "kaun sa section", "konsa section", "best section",
+                                          "worst section", "top section", "weakest section", "strongest section",
+                                          "section wise result", "sabse achha section"]):
             e["by"] = "section"
             return "average", "keyword"
         if not has_student and _has(low, ["which class", "what class", "kaun si class", "konsi class"]) and \
@@ -484,6 +491,12 @@ class Understander:
             q["by"] = e["by"]
         if intent == "teacher":
             q["teachers"] = e["teachers"]
+            if _has(e["low"], ["not doing well", "not working", "not good", "not performing", "worst", "weak", "poor",
+                               "bad", "lowest", "low", "kharab", "kamzor", "need help", "needs help", "need support",
+                               "struggling", "underperform", "not up to", "below"]):
+                q["order"] = "low"
+            elif _has(e["low"], ["best", "good", "top", "strong", "highest", "doing well", "excellent", "achha", "acha"]):
+                q["order"] = "high"
             if e["subjects"]:
                 q["subject"] = e["subjects"][0]
             return self._done(q, how, e)
@@ -597,13 +610,22 @@ class Understander:
                     continue
                 d = p - pos
                 score = d if d > 0 else (-d + 3)        # prefer a subject after the word ("weak in maths")
+                # Hinglish puts the subject first: "maths me kamzor", "science mein achhe"
+                if d < 0 and p + 1 < len(e["toks"]) and e["toks"][p + 1] in ("me", "mein", "main", "mai", "mei"):
+                    score = -d - 1
                 if abs(d) <= 6 and (best is None or score < best[0]):
                     best = (score, k, code)
+            subj = best[2] if best else None
             if best:
                 used.add(best[1])
-                conds.append({"label": label, "subject": best[2]})
+            # what teachers mean by "weak in Chemistry" is low marks in Chemistry (not "below their own average"),
+            # unless the question says so ("compared to their own average", "weaker than usual")
+            relative = _has(low, ["own average", "their average", "his average", "her average", "than usual",
+                                  "compared to", "relative", "other subjects", "than other"])
+            if label in ("Weak", "Strong") and not relative:
+                conds.append({"level": "low" if label == "Weak" else "high", "subject": subj})
             else:
-                conds.append({"label": label, "subject": None})
+                conds.append({"label": label, "subject": subj})
         left = [code for k, (p, code) in enumerate(sp) if k not in used]
         any_subject = _has(low, ["any subject", "in any", "kisi bhi subject", "kisi subject", "at least one subject",
                                  "one or more subjects", "some subject"])
@@ -728,6 +750,8 @@ class Understander:
                 parts.append(f"[{s if c.get('subject') else ('any subject' if c.get('any') else 'overall')} {c['op']} {c['value']}%]")
             elif c.get("grade"):
                 parts.append(f"[grade {c['grade']}{' in ' + s if c.get('subject') else ''}]")
+            elif c.get("level"):
+                parts.append(f"[{'low' if c['level'] == 'low' else 'high'} marks in {s if c.get('subject') else 'overall %'}]")
             elif c.get("result"):
                 parts.append(f"[{c['result'].replace('_', ' ')}{' in ' + s if c.get('subject') else ''}"
                              f"{' in ' + str(c['min']) + '+ subjects' if c.get('min') else ''}]")
@@ -741,6 +765,8 @@ class Understander:
             parts.append(f"by {q['by']}")
         if q.get("students") and self.ds:
             parts.append(self.ds.students[q["students"][0]].name)
+        if q.get("order") and op == "teacher":
+            parts.append("(lowest results first)" if q["order"] == "low" else "(best results first)")
         if q.get("teachers"):
             names = {t["id"]: t["name"] for t in self.teachers}
             parts.append(", ".join(names.get(t, t) for t in q["teachers"]))

@@ -626,6 +626,8 @@
   },
   "pass_percent": 33,
   "distinction_percent": 75,
+  "low_percent": 50,
+  "high_percent": 75,
   "pass_each_part": true,
   "strong_gap": 5,
   "weak_gap": 5,

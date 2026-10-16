@@ -150,14 +150,15 @@ def test_weak_and_strong_combination(data):
     ds, res = data
     parsed, ans = ask(data, "Who is weak in Maths but strong in Physics in class XI?")
     conds = parsed["query"]["conds"]
-    assert {"label": "Weak", "subject": "041"} in conds and {"label": "Strong", "subject": "042"} in conds
+    assert {"level": "low", "subject": "041"} in conds and {"level": "high", "subject": "042"} in conds
     ex = ds.exams_for("XI")[-1]
     want = set()
     for (sid, e), er in res.exam_results.items():
         if ds.students[sid].cls != "XI" or e != ex:
             continue
-        labs = {r.subject: r.label for r in er.rows}
-        if labs.get("041") == "Weak" and labs.get("042") == "Strong":
+        by = {r.subject: r for r in er.rows if r.pct is not None}
+        m, p = by.get("041"), by.get("042")
+        if m and p and (m.pct < 50 or m.passed == "No") and p.pct >= 75:
             want.add(ds.students[sid].name)
     assert {r[0] for r in ans["table"]["rows"]} == want
 
@@ -172,13 +173,13 @@ def test_synonyms_and_typos(data):
 def test_hinglish(data):
     parsed, ans = ask(data, "physics mein kaun kamzor hai class 11")
     assert parsed["query"]["op"] == "list"
-    assert parsed["query"]["conds"][0] == {"label": "Weak", "subject": "042"}
+    assert parsed["query"]["conds"][0] == {"level": "low", "subject": "042"}
 
 
 def test_speech_to_text_slips(data):
     # speech-to-text often writes "weak" as "week"
     parsed, ans = ask(data, "Who is Week in Physics in Class 11?")
-    assert parsed["query"]["conds"] == [{"label": "Weak", "subject": "042"}]
+    assert parsed["query"]["conds"] == [{"level": "low", "subject": "042"}]
 
 
 def test_unsupported_question_says_so(data):

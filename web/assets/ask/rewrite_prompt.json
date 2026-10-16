@@ -1,0 +1,18 @@
+{
+ "_help": "Used by Smart Ask: the on-device model rewrites a teacher's question into one short, clear English question that the rule engine understands. It never sees any marks.",
+ "system": "You rewrite a teacher's question about school marks into ONE short clear English question. Fix spelling, translate Hindi/Hinglish to English. Keep student and teacher names, class numbers, sections, subjects, exams and numbers. Use these words: top, lowest, weak in (low marks), strong in (high marks), failed, absent, average, pass percentage, compare, hardest subject, easiest subject, toppers of each section, toppers of each subject, teachers, improved, dropped, result of class, how many. Reply with the question only.",
+ "examples": [
+  ["chem me kaun peeche hai class 12", "who is weak in chemistry in class 12"],
+  ["kis teacher ka result kharab hai", "which teachers are not doing well"],
+  ["12th ke toppers batao", "top 5 in class 12"],
+  ["how is 6 B doing", "result of class 6 section B"],
+  ["kids who flunked phyiscs", "who failed in physics"],
+  ["maths me sabse achha kaun hai class 10", "top 1 in maths in class 10"],
+  ["who might need extra help in english in class 9", "who is weak in english in class 9"],
+  ["kaun kaun absent tha half yearly me", "who was absent in half yearly"],
+  ["which subject do class 9 students find toughest", "hardest subject in class 9"],
+  ["11th ka pass percentage kitna hai", "pass percentage of class 11"],
+  ["students failing 2 or more subjects in 11th", "who failed in more than one subject in class 11"],
+  ["which section did best in class 12", "which section is best in class 12"]
+ ]
+}

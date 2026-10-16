@@ -448,6 +448,28 @@ def teachers_list_inner():
 
 
 @safe
+def remove_file_teacher(name, subject):
+    """Remove a teacher read from an uploaded 'Teachers' sheet (completely - from the list, the analysis and
+    the Excel file). name + subject as shown in the list."""
+    from .teachers import normalise
+    from .textutil import norm_name
+    keep = []
+    for t, n in zip(S.project.file_teachers, normalise(S.project.file_teachers, S.cfg, S.project.vocab)):
+        if norm_name(n["name"]) == norm_name(name) and (n["subject"] or n["subject_text"]) == subject:
+            continue
+        keep.append(t)
+    S.project.file_teachers = keep
+    return teachers_list_inner()
+
+
+@safe
+def remove_all_teachers():
+    S.teachers = []
+    S.project.file_teachers = []
+    return teachers_list_inner()
+
+
+@safe
 def teachers_list():
     return teachers_list_inner()
 

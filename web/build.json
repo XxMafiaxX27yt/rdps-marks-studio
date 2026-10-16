@@ -1,5 +1,5 @@
 {
- "version": "d1f44b486f8d",
+ "version": "4596f6505a19",
  "wheels": [
   "et_xmlfile-2.0.0-py3-none-any.whl",
   "openpyxl-3.1.5-py2.py3-none-any.whl",
@@ -8,6 +8,7 @@
  ],
  "files": [
   ".nojekyll",
+  "assets/ask/rewrite_prompt.json",
   "assets/img/icon-192.png",
   "assets/img/icon-32.png",
   "assets/img/icon-64.png",
@@ -117,8 +118,12 @@
   "assets/voice/teachers-0-4d6f55925e.mp3",
   "assets/voice/teachers-1-9134aef854.mp3",
   "assets/voice/teachers-2-0c4ea7da02.mp3",
+  "assets/voice/teachers-2-a29f99e388.mp3",
+  "assets/voice/teachers-3-24262e7da2.mp3",
   "assets/voice/teachers-3-f1e1498cdb.mp3",
   "assets/voice/teachers-4-880d4f332d.mp3",
+  "assets/voice/teachers-4-936b7944bc.mp3",
+  "assets/voice/teachers-5-f4e71d6415.mp3",
   "assets/voice/upload-0-5f54060cc2.mp3",
   "assets/voice/upload-1-39609c3d54.mp3",
   "assets/voice/upload-2-b4e5147f77.mp3",
@@ -131,6 +136,7 @@
   "js/engine.js",
   "js/explain.js",
   "js/files.js",
+  "js/intro-flag.js",
   "js/pages/ask.js",
   "js/pages/board.js",
   "js/pages/extra.js",

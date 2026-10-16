@@ -119,9 +119,62 @@ def _stats(rows):
             "grades": grades, "top": max((r.pct for r in ok), default=None)}
 
 
+# ---------------------------------------------------------------- the fair check
+STRUGGLING = Decimal(40)     # a student whose OTHER subjects average below this is struggling everywhere
+MIN_STUDENTS = 8
+
+
+def residuals(res):
+    """For every (student, exam, subject) with marks: how far the mark is from what that student usually gets
+    in their other subjects, after taking away how hard the subject is for the whole class.
+    -> {(sid, exam, subject): (residual, other_avg)}"""
+    ds = res.ds
+    other = {}
+    for er in res.exam_results.values():
+        ok = [r for r in er.rows if r.status == STATUS_OK]
+        tot = sum((r.pct for r in ok), Decimal(0))
+        for r in ok:
+            if len(ok) > 1:
+                other[(r.sid, r.exam, r.subject)] = (r.pct, (tot - r.pct) / (len(ok) - 1))
+    gaps = {}
+    for (sid, exam, subj), (pct, oth) in other.items():
+        gaps.setdefault((ds.students[sid].cls, exam, subj), []).append(pct - oth)
+    offset = {k: sum(v, Decimal(0)) / len(v) for k, v in gaps.items()}
+    out = {}
+    for (sid, exam, subj), (pct, oth) in other.items():
+        out[(sid, exam, subj)] = (pct - oth - offset[(ds.students[sid].cls, exam, subj)], oth)
+    return out
+
+
+def fair_check(rows, resid):
+    """The teacher's effect = average of their students' residuals (students struggling in every subject are
+    left out), with a 95% range. Clear only when the whole range is above / below zero."""
+    vals, left_out = [], 0
+    for r in rows:
+        k = (r.sid, r.exam, r.subject)
+        if k not in resid:
+            continue
+        v, oth = resid[k]
+        if oth < STRUGGLING:
+            left_out += 1
+            continue
+        vals.append(float(v))
+    n = len(vals)
+    if n < MIN_STUDENTS:
+        return {"n": n, "left_out": left_out, "effect": None, "low": None, "high": None, "verdict": "Not enough data"}
+    m = sum(vals) / n
+    sd = (sum((v - m) ** 2 for v in vals) / (n - 1)) ** 0.5
+    se = sd / n ** 0.5
+    lo, hi = m - 1.96 * se, m + 1.96 * se
+    verdict = "Clear positive impact" if lo > 0 else ("Worth a conversation" if hi < 0 else "No clear difference")
+    return {"n": n, "left_out": left_out, "effect": Decimal(str(round(m, 4))), "low": Decimal(str(round(lo, 4))),
+            "high": Decimal(str(round(hi, 4))), "verdict": verdict}
+
+
 def analyse(res, teachers):
     """-> {'cards': [...], 'comparison': [{subject, name, rows: [...]}], 'exams': ...}"""
     ds, cfg = res.ds, res.cfg
+    resid = residuals(res)
     by_key = {}
     for r in res.rows:
         st = ds.students[r.sid]
@@ -158,10 +211,36 @@ def analyse(res, teachers):
             latest_rows += by_key[(x["cls"], x["section"], subj, x["latest"]["exam"])]
         overall = _stats(latest_rows) if latest_rows else None
         changes = [x["change"] for x in have if x["change"] is not None]
+        fair = fair_check(latest_rows, resid)
+        # the fair check compares with the OTHER sections of the same subject - if this teacher teaches every one
+        # of them, there is nothing to compare with
+        alone = bool(have) and all(
+            {x["section"] for x in have if x["cls"] == c} >= {st.section for st in ds.students.values()
+                                                              if st.cls == c and subj in st.subjects}
+            for c in {x["cls"] for x in have})
+        if alone and fair["effect"] is not None:
+            fair.update(effect=None, low=None, high=None, verdict="Only teacher of this subject")
+        # growth: did the students move up compared with their other subjects from the first to the latest exam?
+        first_rows = []
+        for x in have:
+            if len(x["by_exam"]) > 1:
+                first_rows += by_key[(x["cls"], x["section"], subj, x["first"]["exam"])]
+        g0, g1 = fair_check(first_rows, resid), fair if first_rows else None
+        growth = (g1["effect"] - g0["effect"]) if g1 and g0["effect"] is not None and g1["effect"] is not None else None
+        # the weakest third of the class (by their other subjects): did they do better or worse than expected?
+        weak = []
+        for r in latest_rows:
+            k = (r.sid, r.exam, r.subject)
+            if k in resid and resid[k][1] >= STRUGGLING:
+                weak.append((resid[k][1], resid[k][0]))
+        weak.sort()
+        third = weak[:max(1, len(weak) // 3)] if len(weak) >= 6 else []
+        fair["weakest_third"] = _mean([v for _, v in third]) if third else None
+        fair["growth"] = growth
         card = {"id": t["id"], "name": t["name"], "subject": subj, "subject_name": cfg.subject_name(subj) if subj else t.get("subject_text", ""),
                 "classes": t["classes"], "sections": secs, "overall": overall,
                 "change": _mean(changes), "students": sum(x["students"] for x in have),
-                "source": t.get("source", "")}
+                "source": t.get("source", ""), "fair": fair}
         card["notes"] = _notes(card, cfg)
         cards.append(card)
     # comparison table: every teacher of the same subject side by side
@@ -175,7 +254,7 @@ def analyse(res, teachers):
             rows.append({"id": c["id"], "name": c["name"], "classes": ", ".join(c["classes"]), "students": c["students"],
                          "students_latest": o["n"],
                          "avg": o["avg"], "pass_pct": o["pass_pct"], "vs_own": o["vs_own"], "not_passed": o["not_passed"],
-                         "change": c["change"]})
+                         "change": c["change"], "fair": c["fair"]})
         rows.sort(key=lambda x: -(x["avg"] if x["avg"] is not None else Decimal(-1)))
         comp.append({"subject": subj, "name": cfg.subject_name(subj), "rows": rows})
     return {"cards": cards, "comparison": comp}
@@ -209,6 +288,26 @@ def _notes(card, cfg):
             out.append(f"No {card['subject_name']} marks for {x['label']} in the uploaded files.")
     if not have:
         return out
+    fx = card.get("fair") or {}
+    if fx.get("verdict") == "Only teacher of this subject":
+        out.append("Fair check: this teacher teaches every section of the subject in these classes, so there is no other "
+                   "section to compare with. Look at the change across exams and the weakest students instead.")
+    if fx.get("verdict") == "Not enough data":
+        out.append(f"Fair check: not enough students yet ({fx['n']}) to say anything about the teaching.")
+    elif fx.get("effect") is not None:
+        e, lo, hi = fx["effect"], fx["low"], fx["high"]
+        out.append(f"Fair check: {fx['verdict']}. Students score {_f(abs(e))} points {'above' if e >= 0 else 'below'} what they "
+                   f"usually get in their other subjects (likely range {_f(lo)} to {_f(hi)}), compared with the same subject "
+                   f"in the other sections.")
+        if fx.get("left_out"):
+            out.append(f"{fx['left_out']} student{'s' if fx['left_out'] != 1 else ''} who are low in every subject "
+                       f"{'are' if fx['left_out'] != 1 else 'is'} left out of the fair check - not the subject teacher's alone.")
+        if fx.get("weakest_third") is not None:
+            w = fx["weakest_third"]
+            out.append(f"Weakest third of the students: {_f(abs(w))} points {'above' if w >= 0 else 'below'} expected.")
+        if fx.get("growth") is not None and abs(fx["growth"]) >= 1:
+            out.append(f"Since the first exam the students moved {'up' if fx['growth'] > 0 else 'down'} "
+                       f"{_f(abs(fx['growth']))} points compared with their other subjects.")
     o = card["overall"]
     if o and o["avg"] is not None:
         out.append(f"{card['subject_name']} average in the latest exam: {_f(o['avg'])}% over {o['n']} students"

@@ -60,6 +60,8 @@ class Engine:
                 raise QueryError("Unknown label.")
             if c.get("op") and c["op"] not in ("<", "<=", ">", ">="):
                 raise QueryError("Unknown comparison.")
+            if c.get("level") and c["level"] not in ("low", "high"):
+                raise QueryError("Unknown level.")
             if c.get("grade") and c["grade"] not in {g["grade"] for g in cfg.rules["grades"]}:
                 raise QueryError(f"There is no grade {c['grade']} in the school's grade table.")
         for sid in q.get("students", []):
@@ -221,6 +223,20 @@ class Engine:
             if not hit:
                 return None
             return "; ".join(r.reason for r in hit)
+        if c.get("level"):
+            lowp, highp = Decimal(str(cfg.rules.get("low_percent", 50))), Decimal(str(cfg.rules.get("high_percent", 75)))
+            if c["level"] == "low":
+                test = lambda r: r.status == STATUS_OK and (r6(r.pct) < lowp or r.passed == "No")
+            else:
+                test = lambda r: r.status == STATUS_OK and r6(r.pct) >= highp
+            if subj:
+                hit = [r for r in cand if test(r)]
+                return "; ".join(f"{cfg.subject_name(r.subject)} {_p(r.pct)}%" + (" (below the pass mark)" if r.passed == "No" else "")
+                                 for r in hit) if hit else None
+            if er and er.overall is not None:
+                ok = er.overall < lowp or er.result == "Not passed" if c["level"] == "low" else er.overall >= highp
+                return f"overall {_p(er.overall)}%" if ok else None
+            return None
         if c.get("grade"):
             if subj:
                 hit = [r for r in cand if r.status == STATUS_OK and r.grade == c["grade"]]
@@ -261,6 +277,10 @@ class Engine:
             s = cfg.subject_name(c["subject"]) if c.get("subject") else None
             if c.get("label"):
                 out.append(f"{c['label'].lower()} in {s}" if s else f"{c['label'].lower()} in any subject")
+            elif c.get("level"):
+                lowp, highp = self.cfg.rules.get("low_percent", 50), self.cfg.rules.get("high_percent", 75)
+                out.append(f"with low marks in {s or 'overall %'} (below {lowp}% or the pass mark)" if c["level"] == "low"
+                           else f"with high marks in {s or 'overall %'} ({highp}% or more)")
             elif c.get("grade"):
                 out.append(f"grade {c['grade']}{' in ' + s if s else ' overall'}")
             elif c.get("op"):
@@ -289,6 +309,16 @@ class Engine:
                     "how": "Every student in that class / section with marks." + self.exam_note(sc, em),
                     "table": {"columns": ["Name", "Class", "Roll", "Overall %", "Result"], "rows": rows}}
         ctext = self._cond_text(q.get("conds", []))
+        key = next((c for c in q.get("conds", []) if c.get("level") or c.get("op")), None)
+        if key:
+            def score(st):
+                er = self.res.exam_results.get((st.sid, em.get(st.cls)))
+                if key.get("subject") and er:
+                    r = next((x for x in er.rows if x.subject == key["subject"] and x.pct is not None), None)
+                    return r.pct if r else Decimal(0)
+                return er.overall if er and er.overall is not None else Decimal(0)
+            desc = key.get("level") == "high" or key.get("op") in (">", ">=")
+            hits.sort(key=lambda h: (-score(h[0]) if desc else score(h[0]), h[0].name))
         rows = [self.student_cols(st) + ["; ".join(d)] for st, d in hits]
         text = (f"{len(hits)} student{'s' if len(hits) != 1 else ''} {ctext} - {self.scope_text(sc, sc.get('exam'))}."
                 if hits else f"No students are {ctext} in {self.scope_text(sc, sc.get('exam'))}.")
@@ -742,19 +772,33 @@ class Engine:
                            "mark in the subject minus their own average over all subjects (the fair check).",
                     "table": {"columns": ["Class", "Exam", "Students", "Average %", "Pass %", "vs own avg"], "rows": rows}}
         rows = []
-        for block in an["comparison"]:
-            for r in block["rows"]:
-                rows.append([block["name"], r["name"], r["classes"], float(round(r["avg"], 2)) if r["avg"] is not None else None,
-                             float(round(r["pass_pct"], 1)) if r["pass_pct"] is not None else None,
-                             float(round(r["vs_own"], 2)) if r["vs_own"] is not None else None])
-        best = max((r for r in rows if r[5] is not None), key=lambda r: r[5], default=None)
-        return {"text": f"{len(rows)} teacher{'s' if len(rows) != 1 else ''} compared (latest exam of each class)."
-                        + (f" Biggest lift over the students' own average: {best[1]} ({best[0]}, {'+' if best[5] >= 0 else ''}{best[5]})."
-                           if best else ""),
+        for c in an["cards"]:
+            fx = c.get("fair") or {}
+            rows.append([c["subject_name"], c["name"], ", ".join(c["classes"]), fx.get("verdict", "-"),
+                         float(round(fx["effect"], 2)) if fx.get("effect") is not None else None,
+                         float(round(fx["low"], 2)) if fx.get("low") is not None else None,
+                         float(round(fx["high"], 2)) if fx.get("high") is not None else None,
+                         float(round(c["overall"]["avg"], 2)) if c.get("overall") and c["overall"]["avg"] is not None else None])
+        order = q.get("order")
+        rows.sort(key=lambda r: (r[4] if r[4] is not None else 0) * (1 if order != "high" else -1))
+        if order == "low":
+            pick = [r for r in rows if r[3] == "Worth a conversation"]
+            lead = (f"Worth a conversation: {', '.join(f'{r[1]} ({r[0]})' for r in pick)}. " if pick else
+                    "No teacher's results are clearly below what their students usually get - the differences are "
+                    "within normal ups and downs. ")
+            text = lead + "Lowest first below."
+        elif order == "high":
+            pick = [r for r in rows if r[3] == "Clear positive impact"]
+            text = (f"Clear positive impact: {', '.join(f'{r[1]} ({r[0]})' for r in pick)}. " if pick else
+                    "No teacher stands clearly above the rest - the differences are within normal ups and downs. ") + "Best first below."
+        else:
+            text = f"{len(rows)} teacher{'s' if len(rows) != 1 else ''} - fair check of each (see How it works: Teacher analysis)."
+        return {"text": text + " Marks show only part of teaching - use this to start a conversation, not to decide.",
                 "how": "Average and pass % of the students each teacher teaches, in that subject. 'vs own avg' is the fair "
                        "check - it does not depend on how strong the class is.",
-                "table": {"columns": ["Subject", "Teacher", "Classes", "Average %", "Pass %", "vs own avg"], "rows": rows},
-                "chart": {"type": "bar", "labels": [r[1] for r in rows], "values": [r[3] for r in rows], "label": "Average %"}}
+                "table": {"columns": ["Subject", "Teacher", "Classes", "Fair check", "Effect (points)", "Range from", "Range to",
+                                      "Average %"], "rows": rows},
+                "chart": {"type": "bar", "labels": [r[1] for r in rows], "values": [r[4] for r in rows], "label": "Effect (points)"}}
 
     def op_help(self, q):
         return {"text": "Ask about the uploaded marks in your own words. For example: 'Top 5 in Class 9', "
