@@ -27,8 +27,9 @@ def _p(d):
 
 
 class Engine:
-    def __init__(self, ds=None, res=None, board=None, teachers=None, cfg=None):
+    def __init__(self, ds=None, res=None, board=None, teachers=None, cfg=None, class_lists=None):
         self.ds, self.res, self.board = ds, res, board
+        self.class_lists = class_lists or []
         self.cfg = ds.cfg if ds else cfg
         self.teachers = teachers or []
 
@@ -933,30 +934,37 @@ class Engine:
                 "how": "Counted from the gazette; pass/compartment exactly as CBSE printed."}
 
     def op_board_teachers(self, q):
-        """Teachers on the board results (subject marks vs the same students' other subjects)."""
+        """Teachers on the board results: each teacher's own sections (class lists), fair check."""
         from .teachers import analyse_board
         if not self.teachers:
             return {"text": "No teachers have been added yet. Add them on the Teachers page (name, subject, class XII or X).",
                     "how": "-"}
-        r = analyse_board(self._an(), self.teachers, self.cfg, self.ds)
-        cards = [c for c in r["cards"] if not q.get("subject") or c["subject"] == q["subject"]]
+        r = analyse_board(self._an(), self.teachers, self.cfg, self.ds, self.class_lists)
+        cards = [c for c in r["cards"] if not q.get("subject") or q["subject"] in (c["subject"], c["school_subject"])]
         order = q.get("order")
-        cards.sort(key=lambda c: (c["fair"]["effect"] if c["fair"]["effect"] is not None else 0) * (-1 if order != "low" else 1))
-        rows = [[c["subject_name"], c["name"], c["candidates"], float(round(c["avg"], 1)) if c["avg"] is not None else None,
-                 c["a1"], c["grade_e"], float(round(c["fair"]["effect"], 1)) if c["fair"]["effect"] is not None else None,
-                 c["fair"]["verdict"]] for c in cards]
+
+        def key(c):
+            f = c["fair"]
+            v = f["effect"] if f["effect"] is not None else (f["vs_own"] if f["vs_own"] is not None else 0)
+            return v if order == "low" else -v
+        cards.sort(key=key)
+        r1 = lambda v: float(round(v, 1)) if v is not None else None
+        rows = [[c["subject_name"], c["name"], ", ".join(c["sections"]) or r["cls"], c["candidates"], r1(c["avg"]),
+                 c["grade_e"], r1(c["fair"]["vs_own"]), r1(c["fair"]["effect"]), c["fair"]["verdict"]] for c in cards]
         lead = ""
-        if cards and order == "low":
-            lead = f"Furthest below the students' other subjects: {cards[0]['subject_name']} ({cards[0]['name']}). "
-        elif cards and order == "high":
-            lead = f"Furthest above the students' other subjects: {cards[0]['subject_name']} ({cards[0]['name']}). "
-        return {"text": lead + f"Board {r['year']} - {len(cards)} subject teacher group(s). " + r["caution"],
-                "how": "Each student's board mark in the subject minus their average in their other subjects; students low "
-                       "in every subject left out.",
-                "table": {"columns": ["Subject", "Teacher(s)", "Students", "Average", "A1", "Grade E", "vs other subjects",
-                                      "Check"], "rows": rows},
-                "chart": {"type": "bar", "labels": [r_[0] for r_ in rows], "values": [r_[6] for r_ in rows],
-                          "label": "vs other subjects (marks)"}}
+        if cards and order in ("low", "high"):
+            c = cards[0]
+            lead = (f"{'Lowest' if order == 'low' else 'Highest'} compared with the other teachers of the same subject "
+                    f"(or, for a subject with one teacher, with the students' other subjects): {c['name']} "
+                    f"({c['subject_name']}). ")
+        return {"text": lead + f"Board {r['year']}: {len(cards)} teacher card{'s' if len(cards) != 1 else ''}. " + r["caution"],
+                "how": "Each student's board mark in the subject minus their average in their other subjects; then compared "
+                       "with the other teachers of the same subject. Students low in every subject are left out.",
+                "table": {"columns": ["Subject", "Teacher", "Sections", "Students", "Average", "Did not pass",
+                                      "vs own other subjects", "vs other teachers", "Fair check"], "rows": rows},
+                "chart": {"type": "bar", "labels": [f"{x[1]} ({x[0]})" for x in rows],
+                          "values": [x[7] if x[7] is not None else x[6] for x in rows],
+                          "label": "marks above / below"}}
 
     def op_board_comp(self, q):
         an = self._an()

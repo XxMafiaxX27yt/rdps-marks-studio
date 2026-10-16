@@ -16,6 +16,25 @@ def _passed_grade(grade, cfg):
     return grade not in cfg.rules["board"]["fail_grades"]
 
 
+PASS_MARK = 33
+MARK_BANDS = [(90, 101, "90-100"), (80, 90, "80-89"), (70, 80, "70-79"), (60, 70, "60-69"), (50, 60, "50-59"),
+              (33, 50, "33-49"), (0, 33, "Below 33")]
+
+
+def entry_passed(x, cfg):
+    """True / False / None (no mark and no grade). CBSE's grade decides; without grades, 33 marks."""
+    if x.get("grade"):
+        return _passed_grade(x["grade"], cfg)
+    if x.get("marks") is None:
+        return None
+    return x["marks"] >= PASS_MARK
+
+
+def bands(marks):
+    """Marks -> [[label, count]] in the bands above (highest first)."""
+    return [[lab, sum(1 for m in marks if lo <= m < hi)] for lo, hi, lab in MARK_BANDS]
+
+
 def student_totals(s, cfg):
     marks = [(x["code"], x["marks"]) for x in s.subjects if x["marks"] is not None]
     if not marks:
@@ -71,9 +90,9 @@ def analyse(g, cfg):
             "known": c in cfg.subjects or c in cfg.rules.get("board", {}).get("x_names", {}),
             "candidates": len(entries), "avg": Decimal(sum(marks)) / len(marks) if marks else None,
             "max": max(marks) if marks else None, "min": min(marks) if marks else None,
-            "passed": sum(1 for x in entries if x["grade"] and _passed_grade(x["grade"], cfg)),
-            "failed": sum(1 for x in entries if x["grade"] and not _passed_grade(x["grade"], cfg)),
-            "grades": grades, "pi": pi,
+            "passed": sum(1 for x in entries if entry_passed(x, cfg) is True),
+            "failed": sum(1 for x in entries if entry_passed(x, cfg) is False),
+            "grades": grades, "pi": pi, "bands": bands(marks),
             "above90": sum(1 for m in marks if m >= 90), "centums": sum(1 for m in marks if m == 100),
             "toppers": [s.name for s in studs for x in s.subjects if x["code"] == c and marks and x["marks"] == max(marks)],
         })
@@ -110,7 +129,8 @@ def analyse(g, cfg):
             internal[i][gr] += 1
     return {
         "meta": {"title": g.title, "year": g.year, "cls": g.cls, "exam_type": g.exam_type, "region": g.region,
-                 "school_code": g.school_code, "school_name": g.school_name, "date": g.date, "file": g.file},
+                 "school_code": g.school_code, "school_name": g.school_name, "date": g.date, "file": g.file,
+                 "kind": getattr(g, "kind", "gazette"), "graded": tg > 0},
         "candidates": n, "passed": passed, "comp": len(comp), "others": len(others),
         "pass_pct": Decimal(passed) * 100 / n if n else None,
         "avg_best5": sum((r["best5"] for r in best), Decimal(0)) / len(best) if best else None,
@@ -151,6 +171,7 @@ def school_vs_board(an, ds, res, cfg):
     gcls = an["meta"].get("cls") or "XII"
     code_map = {k: v for k, v in cfg.rules.get("board", {}).get("school_code_map", {}).items() if not k.startswith("_")}
     by_roll = {s.board_roll: s for s in ds.students.values() if s.board_roll}
+    by_adm = {s.adm_no.upper(): s for s in ds.students.values() if s.adm_no}
     by_name = {}
     for s in ds.students.values():
         if s.cls == gcls:
@@ -158,8 +179,10 @@ def school_vs_board(an, ds, res, cfg):
     links, notes = [], []
     for r in an["rows"]:
         b = r["s"]
-        st = by_roll.get(b.roll)
+        st = by_roll.get(getattr(b, "board_roll", "") or b.roll)
         how = "board roll"
+        if st is None and getattr(b, "adm_no", ""):
+            st, how = by_adm.get(b.adm_no.upper()), "admission no"
         if st is None:
             cands = by_name.get(norm_name(b.name), [])
             if len(cands) == 1:
@@ -192,4 +215,4 @@ def school_vs_board(an, ds, res, cfg):
     by_subject.sort(key=lambda x: cfg.subject_order.index(x["code"]) if x["code"] in cfg.subject_order else 99)
     return {"links": links, "by_subject": by_subject,
             "linked_students": len({l["roll"] for l in links}),
-            "by_name": len({l["roll"] for l in links if l["how"] != "board roll"})}
+            "by_name": len({l["roll"] for l in links if l["how"].startswith("name")})}

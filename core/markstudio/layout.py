@@ -43,10 +43,12 @@ FIELD_WORDS = [
     ("row_subject", ["subject", "sub", "subject name", "subject code"]),
     ("row_exam", ["exam", "test", "examination", "exam name", "test name", "assessment"]),
     ("file_total", ["total", "grand total", "gt", "total marks", "marks total", "aggregate", "agg", "total obtained"]),
-    ("file_percent", ["percentage", "percent", "per", "%", "perc", "pct"]),
-    ("ignore", ["result", "rank", "position", "grade", "remarks", "remark", "attendance", "signature", "sign",
-                "max", "max marks", "mm", "date", "dob", "date of birth", "phone", "mobile", "address", "house",
-                "promoted", "status", "overall grade", "cgpa", "gpa"]),
+    ("file_percent", ["percentage", "percent", "per", "%", "perc", "pct", "perc %", "percentage %", "aggregate %"]),
+    ("file_grade", ["grade", "grd", "overall grade", "final grade", "grades", "cgpa", "gpa", "division"]),
+    ("file_result", ["result", "results", "pass fail", "pass or fail", "final result", "status", "promoted",
+                     "promotion", "remarks result"]),
+    ("ignore", ["rank", "position", "remarks", "remark", "attendance", "signature", "sign",
+                "max", "max marks", "mm", "date", "dob", "date of birth", "phone", "mobile", "address", "house"]),
 ]
 
 THEORY_WORDS = {"th", "theory", "thy", "theo", "written", "wr", "theor", "thry", "w", "wt", "writ"}
@@ -216,7 +218,7 @@ class Vocab:
                 return role
         # partial: phrase contained as whole words (e.g. "name of the student (in capitals)")
         for role, phrases in self.field_phrases:
-            if role in ("sno", "ignore", "row_subject", "row_exam", "file_percent"):
+            if role in ("sno", "ignore", "row_subject", "row_exam", "file_percent", "file_grade", "file_result"):
                 continue
             for p in phrases:
                 if len(p) >= 4 and re.search(r"(^| )" + re.escape(p) + r"( |$)", n):
@@ -420,17 +422,24 @@ def detect(sheet, file_name, cfg, vocab=None):
                 col.update(role="lang_choice", why="Which language each student takes")
             cols.append(col)
             continue
+        # "English Grade" / "Phy Gr" is a grade column, not marks
+        if subj and norm(h).split()[-1:] in (["gr"], ["grd"], ["grade"]):
+            col.update(role="file_grade", why="Grade written in the file (kept for reference, not used)")
         # a heading like "Physics" wins over the generic word "total"/"marks"
-        if subj and field in (None, "file_total", "file_percent", "ignore", "row_subject", "choice", "group", "class"):
+        elif subj and field in (None, "file_total", "file_percent", "file_grade", "file_result", "ignore", "row_subject",
+                                "choice", "group", "class"):
             if field == "choice":
                 col.update(role="choice", why="Subject choice column")
             elif field in ("file_percent",):
-                col.update(role="ignore", why="Percentage column (worked out again, not read)")
+                col.update(role="file_percent", why="Percentage written in the file (worked out again, not read)")
             else:
                 col.update(role="mark", subject=subj, component=comp, exam=exam)
         elif field:
             col["role"] = field
-            col["why"] = "Recognised heading"
+            col["why"] = {"file_percent": "Percentage written in the file (worked out again, not read)",
+                          "file_grade": "Grade written in the file (worked out again, not read)",
+                          "file_result": "Result written in the file (worked out again, not read)",
+                          "file_total": "Total written in the file (only used to double-check)"}.get(field, "Recognised heading")
             if field == "row_subject" and prof["alpha_long"] < prof["count"] * 0.5 and prof["numeric"] > prof["count"] * 0.5:
                 # "Sub" column full of numbers is probably a subject *code* column - still a subject column
                 pass

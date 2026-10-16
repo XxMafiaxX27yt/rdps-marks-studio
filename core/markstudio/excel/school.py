@@ -1828,7 +1828,9 @@ class SchoolWorkbook:
         ws.write(r, 1, "Teachers of the same subject, side by side (latest exam)", f.section())
         r += 2
         cmp_heads = ["Teacher", "Classes", "Students", "Average %", "Pass %", "vs own average", "Change since first exam",
-                     "Not passed"]
+                     "Not passed", "Fair check", "Likely range"]
+        ws.set_column(9, 9, 24)
+        ws.set_column(10, 10, 16)
         for block in an["comparison"]:
             ws.write_string(r, 1, block["name"], f.get(bold=True, font_color=theme.NAVY))
             r += 1
@@ -1839,6 +1841,11 @@ class SchoolWorkbook:
                 lat, chg = detail.get(row["id"], ([], []))
                 ws.write_string(r, 1, row["name"], f.cell(bold=True))
                 ws.write_string(r, 2, row["classes"], f.cell())
+                fx = row["fair"] or {}
+                vcol = {"Clear positive impact": theme.GREEN, "Worth a conversation": theme.AMBER}.get(fx.get("verdict"), theme.TEXT)
+                ws.write_string(r, 9, fx.get("verdict", ""), f.cell(bold=True, font_color=vcol))
+                ws.write_string(r, 10, ("%+.1f (%.1f to %.1f)" % (fx["effect"], fx["low"], fx["high"]))
+                                if fx.get("effect") is not None else "-", f.cell(align="center"))
                 if not lat:
                     continue
                 cnt = "+".join(rc(x, 3) for x, _ in lat)
@@ -1861,6 +1868,51 @@ class SchoolWorkbook:
                                                 "format": f.get(font_color=theme.RED)})
             ws.conditional_format(4, c, rr, c, {"type": "cell", "criteria": ">", "value": 0,
                                                 "format": f.get(font_color=theme.GREEN)})
+        self._teacher_charts(ws, an["cards"], rr + 2, 12)
+
+    def _teacher_charts(self, ws, cards, r, col):
+        """A small table (for the charts) and two charts: each teacher's 'vs own average', and how many students
+        did better / about the same / worse in the teacher's subject than in their other subjects."""
+        f = self.f
+        cards = [c for c in cards if c.get("viz") and sum(c["viz"]["split"].values())]
+        if not cards:
+            return
+        ws.write(r, 1, "For the charts", f.section())
+        r += 1
+        heads = ["Teacher", "Subject", "Better", "About the same", "Worse", "vs own average"]
+        for c, h in enumerate(heads, 1):
+            ws.write(r, c, h, f.header())
+        first = r + 1
+        for c in cards:
+            r += 1
+            sp = c["viz"]["split"]
+            o = c.get("overall") or {}
+            ws.write_string(r, 1, c["name"], f.cell(bold=True))
+            ws.write_string(r, 2, c["subject_name"], f.cell())
+            ws.write(r, 3, sp["better"], f.cell(align="center"))
+            ws.write(r, 4, sp["same"], f.cell(align="center"))
+            ws.write(r, 5, sp["worse"], f.cell(align="center"))
+            ws.write(r, 6, _num(o.get("vs_own")), f.num(1))
+        last = r
+        name = ws.get_name()
+        ch = self.wb.add_chart({"type": "bar"})
+        ch.add_series({"name": "vs own average (points)", "categories": [name, first, 1, last, 1],
+                       "values": [name, first, 6, last, 6], "fill": {"color": theme.BLUE},
+                       "invert_if_negative": False, "data_labels": {"value": True, "num_format": "0.0"}})
+        ch.set_title({"name": "Students vs their own average, by teacher", "name_font": {"size": 11}})
+        ch.set_legend({"none": True})
+        ch.set_y_axis({"reverse": True})
+        ch.set_size({"width": 560, "height": 90 + 26 * len(cards)})
+        ws.insert_chart(4, col, ch)
+        st = self.wb.add_chart({"type": "bar", "subtype": "percent_stacked"})
+        for k, (lab, color) in enumerate([("Better", theme.GREEN), ("About the same", "#9FB3C4"), ("Worse", theme.RED)]):
+            st.add_series({"name": lab, "categories": [name, first, 1, last, 1], "values": [name, first, 3 + k, last, 3 + k],
+                           "fill": {"color": color}, "gap": 60})
+        st.set_title({"name": "Did better / same / worse than in their other subjects", "name_font": {"size": 11}})
+        st.set_legend({"position": "bottom"})
+        st.set_y_axis({"reverse": True})
+        st.set_size({"width": 560, "height": 110 + 26 * len(cards)})
+        ws.insert_chart(4 + 6 + int((90 + 26 * len(cards)) / 20), col, st)
 
     # ------------------------------------------------------------------ Validation report
     def write_validation(self):

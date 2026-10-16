@@ -9,14 +9,15 @@ import { printCards } from "../report.js";
 import { qmark } from "../explain.js";
 
 const rerender = () => window.__render();
-const STEPS = ["Upload", "Check", "Review", "Download"];
-const ROLES = [["ignore", "Not used"], ["name", "Student name"], ["roll", "Roll no"], ["adm_no", "Admission no"],
-  ["board_roll", "Board roll no"], ["father", "Father's name"], ["mother", "Mother's name"], ["class", "Class"],
-  ["section", "Section"], ["class_section", "Class + section"], ["group", "Group / stream"], ["gender", "Gender"],
-  ["choice", "Subject choice"], ["mark", "Marks"], ["file_total", "Total (to double-check)"], ["sno", "Serial no"],
-  ["row_subject", "Subject name (per row)"], ["row_exam", "Exam name (per row)"]];
+const STEPS = ["Add files", "Check", "Results", "Download"];
+const ROLES = [["mark", "Marks of a subject"], ["ignore", "Not needed"], ["name", "Student's name"], ["roll", "Roll no"],
+  ["adm_no", "Admission no"], ["board_roll", "Board roll no"], ["class", "Class"], ["section", "Section"],
+  ["class_section", "Class and section together"], ["gender", "Boy / girl"], ["group", "Stream (science, commerce…)"],
+  ["choice", "Subjects the student takes"], ["file_total", "Total (only to double-check)"], ["file_percent", "Percentage"],
+  ["file_grade", "Grade"], ["file_result", "Result (pass / fail)"], ["father", "Father's name"], ["mother", "Mother's name"],
+  ["sno", "Serial number"], ["row_subject", "Subject name, written in each row"], ["row_exam", "Exam name, written in each row"]];
 let busy = null;      // text while working
-const PARTS = [["theory", "Theory / written"], ["practical", "Practical / internal (total)"], ["total", "Total (out of 100)"],
+const PARTS = [["theory", "Written paper"], ["practical", "Practical / internal (whole)"], ["total", "Total (out of 100)"],
   ["pt5", "Internal: PT part"], ["portfolio", "Internal: portfolio"], ["project", "Internal: project"], ["notebook", "Notebook"],
   ["viva", "Practical: viva"], ["file", "Practical: file"], ["ptest", "Practical: test"]];
 
@@ -32,7 +33,7 @@ export function html() {
 }
 
 function loadingHtml() {
-  return `<div class="page-head"><div><h1>School results</h1><p>Getting the engine ready - this takes a few seconds the first time, then it is instant and works offline.</p></div></div>
+  return `<div class="page-head"><div><h1>School results</h1><p>Getting ready - this takes a few seconds the first time, then it is instant and works offline.</p></div></div>
   <div class="grid g3">${[1, 2, 3].map(() => `<div class="card"><div class="skeleton" style="height:18px;width:60%"></div><div class="skeleton" style="height:110px;margin-top:14px"></div></div>`).join("")}</div>`;
 }
 
@@ -58,7 +59,7 @@ function upload() {
   const gz = f.gazettes.map((g) => `
     <div class="file-row"><span class="ficon">CBSE</span>
       <div style="flex:1;min-width:0"><div class="fname">${esc(g.name)}</div>
-      <div class="tiny muted">Board gazette ${esc(g.year)} · ${g.students} students → shown under <a href="#/board">Board results</a></div></div>
+      <div class="tiny muted">Board results ${esc(g.year)} · ${g.students} students → shown under <a href="#/board">Board results</a></div></div>
       <button class="btn btn-ghost btn-sm" data-remove="${g.id}">Remove</button></div>`).join("");
   return `
   <div class="grid g3">
@@ -131,7 +132,8 @@ async function addFiles(fileList) {
           continue;
         }
       }
-      if (info.kind === "gazette") toast(`CBSE gazette found (${info.students} students, ${info.year}). See <a href="#/board">Board results</a>.`, "ok", 6000);
+      if (info.kind === "gazette" && info.table) { S.board = null; toast(`${esc(file.name)} looks like <b>board results</b> (${info.students} students) - it was added to the <a href="#/board">Board results</a> page.`, "ok", 8000); }
+      else if (info.kind === "gazette") toast(`CBSE board results found (${info.students} students, ${info.year}). See <a href="#/board">Board results</a>.`, "ok", 6000);
       else toast(`Added ${esc(file.name)}`, "ok", 2200);
     } catch (e) {
       toast(`Could not read ${esc(file.name)}: ${esc(e.message)}`, "err", 9000);
@@ -171,37 +173,94 @@ function confirmModal(title, text, yes = "Yes") {
 }
 
 // ================================================================== 2. check
+const ROLE_WORDS = { name: "Name", roll: "Roll no", adm_no: "Admission no", board_roll: "Board roll no", father: "Father's name",
+  mother: "Mother's name", class: "Class", section: "Section", class_section: "Class and section", group: "Stream", gender: "Boy / girl",
+  choice: "Subjects taken", lang_choice: "Language taken", file_total: "Total (to double-check)", file_percent: "Percentage",
+  file_grade: "Grade", file_result: "Result", row_subject: "Subject in each row", row_exam: "Exam in each row" };
+const PART_WORDS = { practical: "practical / internal", total: "totals", pt5: "PT part", portfolio: "portfolio", project: "project",
+  notebook: "notebook", viva: "viva", file: "practical file", ptest: "practical test" };
+
 function check() {
   const st = S.files;
   if (!st) return "";
   if (st.restored) return `<div class="card"><h3>Workbook opened</h3><p class="muted">The columns were already checked when this workbook was made.</p>
-    <button class="btn btn-primary" data-go="3">Review the results →</button></div>`;
+    <button class="btn btn-primary" data-go="3">See the results →</button></div>`;
   const settings = S.settings;
   const exams = Object.entries(settings.rules.exams).map(([k, v]) => [k, v.name]);
   const classes = Object.keys(settings.rules.classes);
   const subjects = settings.subjects.map((s) => [s.code, s.name]);
   const pend = st.pending;
-  const pendHtml = pend.length ? `<div class="pending stack"><b>${pend.length} thing${pend.length > 1 ? "s" : ""} to confirm before results can be made:</b>
-      <ul style="margin:6px 0 0;padding-left:18px">${pend.slice(0, 12).map((p) => `<li class="small">${esc(p.text)}</li>`).join("")}</ul>
-      ${pend.length > 12 ? `<div class="small">…and ${pend.length - 12} more below (amber boxes).</div>` : ""}</div>` :
-    `<div class="note"><b>Everything is mapped.</b> Have a quick look, then make the results.</div>`;
+  const head = pend.length
+    ? `<div class="check-head warn"><span class="ch-ico">✋</span><div><h2>${pend.length} quick question${pend.length > 1 ? "s" : ""} before we continue</h2>
+        <p>Please answer the questions in the yellow boxes. Everything else was understood.</p></div></div>`
+    : `<div class="check-head ok"><span class="ch-ico">✓</span><div><h2>Everything was understood</h2>
+        <p>Have a quick look at what we read below, then press <b>Make results</b>.</p></div></div>`;
   const cards = [];
-  for (const f of st.files) {
-    for (const sh of f.sheets) {
-      cards.push(sheetCard(f, sh, exams, classes, subjects));
-    }
-  }
+  for (const f of st.files) for (const sh of f.sheets) cards.push(sheetSimple(f, sh, exams, classes, subjects));
   const issues = S.summary ? issuesPanel() : "";
-  return `<div class="stack">${pendHtml}
+  return `<div class="stack">${head}
     ${S.summary ? issues : ""}
-    <div class="card"><div class="card-head"><h3>What each column means ${qmark("check")}</h3>
-      <span class="muted small">Amber = please confirm. Your choices are remembered for files with the same layout.</span></div>
-      ${cards.join("")}</div>
+    <div class="card"><div class="card-head"><h3>What we read ${qmark("check")}</h3>
+      <span class="muted small">Your answers are remembered for files with the same layout.</span></div>
+      <div class="stack">${cards.join("")}</div></div>
     <div class="row between">
       <button class="btn btn-ghost" data-go="1">← Back</button>
-      <div class="row">${S.summary ? `<button class="btn btn-ghost" id="analyze">Re-check</button><button class="btn btn-primary btn-lg" data-go="3">Review results →</button>`
+      <div class="row">${S.summary ? `<button class="btn btn-ghost" id="analyze">Check again</button><button class="btn btn-primary btn-lg" data-go="3">See the results →</button>`
         : `<button class="btn btn-primary btn-lg" id="analyze" ${pend.length ? "disabled" : ""}>Make results ✓</button>`}</div>
     </div></div>`;
+}
+
+function sheetSimple(f, sh, exams, classes, subjects) {
+  const key = `${f.id}|${sh.name}`;
+  const title = esc(f.name) + (f.sheets.length > 1 ? ` <span class="muted">› ${esc(sh.name)}</span>` : "");
+  if (sh.kind === "info") return `<div class="rd-row">📄 ${title} <span class="muted small">- ${esc(sh.note || "not read")}</span></div>`;
+  if (sh.skip) return `<div class="rd-row">📄 ${title} <span class="muted small">- not used</span>
+    <label class="toggle small"><input type="checkbox" data-skip="${f.id}|${esc(sh.name)}"><i></i>Use it</label></div>`;
+  const marks = sh.columns.filter((c) => c.role === "mark");
+  const sName = (code) => code === "@LANG" ? "Language" : ((subjects.find((x) => x[0] === code) || [0, code])[1]);
+  const subjs = [...new Set(marks.filter((c) => c.subject).map((c) => sName(c.subject)))];
+  const parts = [...new Set(marks.map((c) => c.component).filter((x) => x && x !== "theory"))].map((x) => PART_WORDS[x] || x);
+  const others = [...new Set(sh.columns.filter((c) => ROLE_WORDS[c.role]).map((c) => ROLE_WORDS[c.role]))];
+  const exName = (code) => (exams.find((e) => e[0] === code) || [0, code])[1];
+  const colExams = [...new Set(marks.map((c) => c.exam).filter(Boolean))].map(exName);
+  const rows = Math.max(0, sh.rows - sh.data_start + 1);
+  const facts = [
+    sh.cls ? `Class ${esc(sh.cls)}${sh.section ? "-" + esc(sh.section) : ""}` : (sh.columns.some((c) => ["class", "class_section"].includes(c.role)) ? "Class from a column" : ""),
+    sh.kind !== "roster" ? (sh.exam ? esc(exName(sh.exam)) : esc(colExams.join(", "))) : "",
+    `${rows} row${rows !== 1 ? "s" : ""}`,
+  ].filter(Boolean);
+  const qs = [];
+  if (sh.needs_exam) qs.push(`<div class="ask-q"><b>Which exam are these marks from?</b>
+    <select class="sel-sm" data-sheet="${esc(key)}" data-k="exam">${opt(exams, sh.exam, "Pick the exam…")}</select></div>`);
+  if (sh.needs_class) qs.push(`<div class="ask-q"><b>Which class is this?</b>
+    <select class="sel-sm" data-sheet="${esc(key)}" data-k="cls">${opt(classes.map((c) => [c, c]), sh.cls, "Pick the class…")}</select>
+    <span class="small">Section</span><input class="sel-sm" style="width:64px" type="text" maxlength="3" value="${esc(sh.section || "")}" data-sheet="${esc(key)}" data-k="section" placeholder="A"></div>`);
+  for (const c of sh.columns.filter((x) => !x.sure)) {
+    const role = c.role === "unknown" ? "" : c.role;
+    qs.push(`<div class="ask-q col-q" data-colbox="${esc(key)}|${c.col}">
+      <div style="flex:1;min-width:200px"><b>What is the column “${esc(c.header || "(no heading)")}”?</b>
+        <div class="tiny muted">${(c.sample || []).length ? "e.g. " + esc(c.sample.slice(0, 4).join(" · ")) + " · " : ""}${esc(c.why || "")}</div>
+        <div class="ai-sug" data-aisug="${esc(c.header)}"></div></div>
+      <select class="sel-sm" data-col="${esc(key)}|${c.col}" data-k="role">${opt(ROLES, role, role ? undefined : "Pick…")}</select>
+      ${c.role === "mark" ? `<select class="sel-sm" data-col="${esc(key)}|${c.col}" data-k="subject">${opt(subjects, c.subject, "Which subject?")}</select>
+        <select class="sel-sm" data-col="${esc(key)}|${c.col}" data-k="component">${opt(PARTS, c.component || "theory")}</select>
+        <input type="hidden" data-col="${esc(key)}|${c.col}" data-k="exam" value="${esc(c.exam || "")}">` : ""}
+    </div>`);
+  }
+  const open = S.openDetails && S.openDetails.has(key) ? "open" : "";
+  return `<div class="rd-card ${qs.length ? "needs" : ""}">
+    <div class="rd-top"><span class="rd-ico">${sh.kind === "roster" ? "👥" : "📝"}</span>
+      <div style="flex:1;min-width:0"><div class="rd-title">${title}</div><div class="rd-facts">${facts.map((x) => `<span>${x}</span>`).join("")}</div></div>
+      <span class="badge ${sh.kind === "roster" ? "b-info" : "b-ok"}">${sh.kind === "roster" ? "Student list" : "Marks"}</span></div>
+    ${subjs.length ? `<div class="rd-line"><b>Subjects</b> ${subjs.map((x) => `<span class="chip-s">${esc(x)}</span>`).join("")}
+      ${parts.length ? `<span class="muted small">with ${esc(parts.join(", "))}</span>` : ""}</div>` : ""}
+    ${others.length ? `<div class="rd-line small"><b>Also found</b> <span class="muted">${esc(others.join(" · "))}</span></div>` : ""}
+    ${qs.length ? `<div class="rd-qs">${qs.join("")}</div>` : ""}
+    <div class="row" style="margin-top:6px;gap:14px">
+      ${qs.length ? `<button class="btn btn-soft btn-sm" data-confirm="${esc(key)}">The rest looks right ✓</button>` : `<span class="small" style="color:var(--green)">✓ Looks fine</span>`}
+      <label class="toggle small"><input type="checkbox" data-skip="${f.id}|${esc(sh.name)}" checked><i></i>Use this sheet</label></div>
+    <details class="rd-more" data-dkey="${esc(key)}" ${open}><summary>Change something (every column)</summary>${sheetCard(f, sh, exams, classes, subjects)}</details>
+  </div>`;
 }
 
 function opt(list, val, blank) {
@@ -279,10 +338,10 @@ function issuesPanel() {
   }).join("");
   const v = s.verify;
   return `<div class="card"><div class="card-head"><h3>Checks</h3>
-      <div class="seg">${[["error", `Errors ${c.error}`], ["warning", `Checks ${c.warning}`], ["info", `Notes ${c.info}`], ["all", "All"]].map(([k, l]) =>
+      <div class="seg">${[["error", `To fix ${c.error}`], ["warning", `To look at ${c.warning}`], ["info", `Notes ${c.info}`], ["all", "All"]].map(([k, l]) =>
         `<button class="${filt === k ? "on" : ""}" data-filter="${k}">${l}</button>`).join("")}</div></div>
     <div class="note" style="margin-bottom:10px">✔ <b>${s.students} students</b>, ${s.records} marks read, ${s.results} subject results.
-      ${v && v.ok ? "Both independent calculations agree." : ""} ${c.error ? `<b>${c.error} error${c.error > 1 ? "s" : ""}</b>: those marks are left out until corrected (the original file is never changed).` : "No errors."}</div>
+      ${v && v.ok ? "Every result was worked out twice, in two different ways - both agree ✓" : ""} ${c.error ? `<b>${c.error} error${c.error > 1 ? "s" : ""}</b>: those marks are left out until corrected (the original file is never changed).` : "No errors."}</div>
     <div style="max-height:420px;overflow:auto">${items || `<div class="empty">Nothing here.</div>`}</div></div>`;
 }
 
@@ -303,7 +362,7 @@ async function analyze() {
         S.issuesFilter = "error";
         toast(`Results made. ${out.counts.error} error(s) to look at - those marks are left out until fixed.`, "warn", 6000);
       } else {
-        toast(`Results ready ✓ ${out.students} students. Both independent calculations agree.`, "ok");
+        toast(`Results ready ✓ ${out.students} students. Every result was worked out twice and both agree.`, "ok");
         S.step = 3;
       }
     }
@@ -598,6 +657,12 @@ export function mount(root) {
   if (S.files === null) { refreshState().then(rerender); return; }
   root.addEventListener("click", onClick);
   root.addEventListener("change", onChange);
+  root.addEventListener("toggle", (e) => {
+    const d = e.target.closest && e.target.closest("[data-dkey]");
+    if (!d) return;
+    S.openDetails = S.openDetails || new Set();
+    if (d.open) S.openDetails.add(d.dataset.dkey); else S.openDetails.delete(d.dataset.dkey);
+  }, true);
   const drop = $("#drop");
   if (drop) {
     const fin = $("#file-in");

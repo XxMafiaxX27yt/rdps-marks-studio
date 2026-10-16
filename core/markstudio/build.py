@@ -14,7 +14,7 @@ from .textutil import clean, norm, norm_name, parse_number, similar, fmt_mark
 from .layout import Vocab, detect, signature, LANG_MARK, PART_KEYS
 from .groups import infer_group, combo_of
 from .teachers import TEACHER_SHEETS, read_sheet as read_teachers
-from . import readers, gazette
+from . import readers, gazette, boardtable, classlist
 
 INFO_SHEETS = {"how to fill", "instructions", "instruction", "read me", "readme", "lists", "help", "notes",
                "guide", "legend", "info"}
@@ -43,18 +43,79 @@ class Project:
         self.remembered = {}         # layout signature -> saved column choices
         self.gazettes = []           # parsed board gazettes (kept separate)
         self.file_teachers = []      # teachers read from 'Teachers' sheets
+        self.class_lists = []        # which class + section each student is in (classlist.py)
         self._n = 0
+        self._cl = 0
 
     # ------------------------------------------------------------ files
     def add_file(self, name, data):
-        """Read a file. A CBSE gazette goes to the Board section, anything else is a marks table."""
+        """Read a file. A CBSE gazette (or the school's own board-results table) goes to the Board section,
+        anything else is a marks table."""
         sheets = readers.read_file(name, data)
         if len(sheets) == 1 and sheets[0].text and gazette.looks_like_gazette(sheets[0].text):
             g = gazette.parse(sheets[0].text, name)
             g.raw_text = sheets[0].text
             self.gazettes.append(g)
             return {"kind": "gazette", "name": name, "students": len(g.students), "year": g.year}
+        if boardtable.looks_like_board(name, sheets):
+            info = self._board_table(name, sheets)
+            if info:
+                info["moved"] = True
+                return info
         return self._add_table(name, sheets)
+
+    # ------------------------------------------------------------ board results (Board page)
+    def add_board_file(self, name, data):
+        sheets = readers.read_file(name, data)
+        if len(sheets) == 1 and getattr(sheets[0], "text", None) and gazette.looks_like_gazette(sheets[0].text):
+            g = gazette.parse(sheets[0].text, name)
+            g.raw_text = sheets[0].text
+            self.gazettes.append(g)
+            return {"kind": "gazette", "name": name, "students": len(g.students), "year": g.year}
+        info = self._board_table(name, sheets)
+        if not info:
+            raise ValueError(f"{name}: no row of headings with the students' names and subjects (like “Name | English | "
+                             f"Physics | ...”) was found, so it could not be read as board results.")
+        return info
+
+    def add_board_pages(self, name, pages):
+        sheets, text = readers.read_pages(name, pages)
+        if gazette.looks_like_gazette(text):
+            g = gazette.parse(text, name)
+            g.raw_text = text
+            self.gazettes.append(g)
+            return {"kind": "gazette", "name": name, "students": len(g.students), "year": g.year}
+        info = self._board_table(name, sheets)
+        if not info:
+            raise ValueError(f"{name}: no row of headings with the students' names and subjects was found.")
+        return info
+
+    def _board_table(self, name, sheets):
+        g = boardtable.parse(name, sheets, self.cfg, self.vocab)
+        if g is None:
+            return None
+        txt = getattr(sheets[0], "text", None) if sheets else None
+        g.raw_text = txt or "\n".join("\t".join(r) for sh in sheets for r in sh.rows)
+        self.gazettes.append(g)
+        return {"kind": "gazette", "table": True, "name": name, "students": len(g.students), "year": g.year, "cls": g.cls}
+
+    # ------------------------------------------------------------ class lists
+    def add_class_list(self, name, data):
+        return self._class_lists(name, readers.read_file(name, data))
+
+    def add_class_list_pages(self, name, pages):
+        sheets, _ = readers.read_pages(name, pages)
+        return self._class_lists(name, sheets)
+
+    def _class_lists(self, name, sheets):
+        found = classlist.read(name, sheets, self.cfg, self.vocab)
+        if not found:
+            raise ValueError(f"{name}: no column of student names was found, so it could not be read as a class list.")
+        for cl in found:
+            self._cl += 1
+            cl["id"] = f"L{self._cl}"
+            self.class_lists.append(cl)
+        return found
 
     def add_pages(self, name, pages):
         sheets, text = readers.read_pages(name, pages)
@@ -355,8 +416,32 @@ class Builder:
                 if lay["skip"]:
                     continue
                 self._read_sheet(src, sh, lay)
+        self._sections_from_class_lists()
         self._finish()
         return self.ds
+
+    def _sections_from_class_lists(self):
+        """Students whose files give no section get it from the uploaded class lists (same class only)."""
+        if not self.p.class_lists:
+            return
+        placer = classlist.Placer(self.p.class_lists)
+        n = 0
+        for st in self.ds.students.values():
+            if st.section:
+                continue
+            e, how = placer.place(st.name, st.cls, st.adm_no, st.board_roll)
+            if e and e["section"] and (not st.cls or e["cls"] == st.cls):
+                st.section = e["section"]
+                st.cls = st.cls or e["cls"]
+                n += 1
+                if how == "close name":
+                    self.ds.issue("warning", "section_by_close_name",
+                                  f"{st.name}: section {e['section']} taken from the class list, where the name is "
+                                  f"written “{e['name']}”. Please check it is the same student.", st.refs[0] if st.refs else None,
+                                  sid=st.sid)
+        if n:
+            self.ds.issue("info", "sections_from_class_lists",
+                          f"{n} student{'s' if n != 1 else ''} got their section from the class lists.")
 
     def _read_sheet(self, src, sh, lay):
         cfg, v = self.cfg, self.v

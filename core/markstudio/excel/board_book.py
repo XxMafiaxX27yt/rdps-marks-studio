@@ -67,6 +67,8 @@ class BoardWorkbook:
             names.append("School vs Boards")
         if self.teachers and self.teachers["cards"]:
             names.append("Teachers")
+            if self.teachers["placement"]["placed"] or self.teachers["placement"]["unplaced"]:
+                names.append("Students & Sections")
         names += ["Checks", "Gazette Text"]
         self.ws = {n: self.wb.add_worksheet(n) for n in names}
         self.results()
@@ -79,6 +81,8 @@ class BoardWorkbook:
             self.school_vs_board()
         if "Teachers" in self.ws:
             self.teacher_sheet()
+        if "Students & Sections" in self.ws:
+            self.sections_sheet()
         self.checks()
         self.source()
         self.ws["Board Dashboard"].activate()
@@ -441,56 +445,166 @@ class BoardWorkbook:
     # -------------------------------------------------------------- teachers on the board results
     def teacher_sheet(self):
         ws, f, bt = self.ws["Teachers"], self.f, self.teachers
+        wb_name = "Teachers"
         self._sw.banner(ws, f"Teachers - Board Results {bt['year'] or ''}".strip(),
-                        "Each student's board mark in the subject compared with the same student's other subjects.", 12)
+                        "Each teacher's own students: their board mark in the subject compared with their other subjects, "
+                        "and with the other teachers of the same subject.", 13)
+        ws.hide_gridlines(2)
         ws.set_column(0, 0, 2)
-        ws.set_column(1, 1, 22)
-        ws.set_column(2, 2, 30)
-        ws.set_column(3, 10, 10)
-        ws.set_column(11, 11, 34)
-        ws.set_column(12, 12, 8)
+        ws.set_column(1, 1, 18)
+        ws.set_column(2, 2, 24)
+        ws.set_column(3, 3, 14)
+        ws.set_column(4, 10, 10)
+        ws.set_column(11, 11, 16)
+        ws.set_column(12, 12, 26)
         ws.merge_range(3, 1, 3, 12, bt["caution"], f.cell(italic=True, font_color=theme.MUTED, text_wrap=True, valign="top"))
-        ws.set_row(3, 34)
-        r = 5
-        heads = ["Subject", "Teacher(s)", "Students", "Average", "Highest", "A1", "90+", "Grade E", "PI",
-                 "vs other subjects", "Check", "Place"]
+        ws.set_row(3, 48)
+        pl = bt["placement"]
+        if pl["lists"] or pl["placed"]:
+            how = ", ".join(f"{v} by {k}" for k, v in pl["by"].items())
+            line = (f"{pl['placed']} of {pl['total']} students were found in a section ({how}). "
+                    + (f"{len(pl['check'])} matched by a similar name - please check (see Students & Sections). "
+                       if pl["check"] else "")
+                    + (f"{len(pl['unplaced'])} could not be placed. " if pl["unplaced"] else ""))
+            if pl["other_class"]:
+                line += ("Note: the class lists are for Class " + ", ".join(pl["other_class"]) +
+                         f", the board results are Class {bt['cls']} - only the sections were used.")
+            ws.merge_range(4, 1, 4, 12, line, f.cell(font_color=theme.NAVY, text_wrap=True, valign="top"))
+            ws.set_row(4, 32)
+        r = 6
+        heads = ["Subject", "Teacher", "Sections", "Students", "Average", "Highest", "90+", "Did not pass",
+                 "vs own other subjects", "vs other teachers", "Likely range", "Fair check"]
         for c, h in enumerate(heads, 1):
             ws.write(r, c, h, f.header())
-        ws.set_row(r, 30)
-        cards = sorted(bt["cards"], key=lambda c: c.get("rank") or 999)
+        ws.set_row(r, 32)
+        cards = bt["cards"]
+        first = r + 1
         for i, c in enumerate(cards):
             rr = r + 1 + i
             band = {"bg_color": theme.TINT2} if i % 2 else {}
             fx = c["fair"]
             ws.write_string(rr, 1, c["subject_name"], f.cell(bold=True, **band))
             ws.write_string(rr, 2, c["name"], f.cell(quote_prefix=formula_like(c["name"]), **band))
-            ws.write(rr, 3, c["candidates"], f.cell(align="center", **band))
-            ws.write(rr, 4, _n(c["avg"]), f.num(1, **band))
-            ws.write(rr, 5, _n(c["max"]), f.num(0, **band))
-            ws.write(rr, 6, c["a1"], f.cell(align="center", **band))
+            ws.write_string(rr, 3, ", ".join(c["sections"]) or bt["cls"], f.cell(**band))
+            ws.write(rr, 4, c["candidates"], f.cell(align="center", **band))
+            ws.write(rr, 5, _n(c["avg"]), f.num(1, **band))
+            ws.write(rr, 6, _n(c["max"]), f.num(0, **band))
             ws.write(rr, 7, c["above90"], f.cell(align="center", **band))
             ws.write(rr, 8, c["grade_e"], f.cell(align="center", font_color=theme.RED if c["grade_e"] else theme.TEXT, **band))
-            ws.write(rr, 9, _n(c["pi"]), f.num(1, **band))
+            ws.write(rr, 9, _n(fx["vs_own"]), f.num(1, **band))
             e = fx["effect"]
-            ws.write(rr, 10, _n(e), f.num(1, bold=True, font_color=(theme.GREEN if e is not None and fx["low"] > 0 else
-                                                                      theme.RED if e is not None and fx["high"] < 0 else
-                                                                      theme.TEXT), **band))
-            ws.write_string(rr, 11, fx["verdict"], f.cell(**band))
-            ws.write_string(rr, 12, f"{c['rank']} of {c['of']}" if c.get("rank") else "-", f.cell(align="center", **band))
-        r += len(cards) + 2
+            ws.write(rr, 10, _n(e), f.num(1, bold=True, **band))
+            ws.write_string(rr, 11, f"{float(fx['low']):.1f} to {float(fx['high']):.1f}" if e is not None else "-",
+                            f.cell(align="center", **band))
+            vcol = {"Clear positive impact": theme.GREEN, "Worth a conversation": theme.AMBER}.get(fx["verdict"], theme.TEXT)
+            ws.write_string(rr, 12, fx["verdict"], f.cell(bold=True, font_color=vcol, **band))
+        last = r + len(cards)
+        for col in (9, 10):
+            ws.conditional_format(first, col, last, col, {"type": "cell", "criteria": "<", "value": 0,
+                                                          "format": f.get(font_color=theme.RED)})
+            ws.conditional_format(first, col, last, col, {"type": "cell", "criteria": ">", "value": 0,
+                                                          "format": f.get(font_color=theme.GREEN)})
+        r = last + 2
+        # chart data: better / same / worse, and the bands
+        ws.write_string(r, 1, "Compared with their own other subjects", f.cell(bold=True, font_color=theme.NAVY))
+        r += 1
+        for c, h in enumerate(["Teacher", "Subject", "Better", "About the same", "Worse"], 1):
+            ws.write(r, c, h, f.header())
+        sf = r + 1
+        for c in cards:
+            r += 1
+            sp = c["viz"]["split"]
+            ws.write_string(r, 1, c["name"], f.cell(bold=True))
+            ws.write_string(r, 2, c["subject_name"], f.cell())
+            for k, key in enumerate(("better", "same", "worse")):
+                ws.write(r, 3 + k, sp[key], f.cell(align="center"))
+        sl = r
+        r += 2
+        bands = cards[0]["viz"]["bands"] if cards else []
+        are = cards[0]["viz"]["bands_are"] if cards else "marks"
+        ws.write_string(r, 1, "CBSE grades" if are == "grades" else "Marks", f.cell(bold=True, font_color=theme.NAVY))
+        r += 1
+        ws.write(r, 1, "Teacher", f.header())
+        ws.write(r, 2, "Subject", f.header())
+        for k, (lab, _) in enumerate(bands):
+            ws.write(r, 3 + k, lab, f.header())
+        for c in cards:
+            r += 1
+            ws.write_string(r, 1, c["name"], f.cell(bold=True))
+            ws.write_string(r, 2, c["subject_name"], f.cell())
+            for k, (_, v) in enumerate(c["viz"]["bands"]):
+                ws.write(r, 3 + k, v, f.cell(align="center"))
+        r += 2
         ws.write_string(r, 1, "Notes", f.cell(bold=True, font_color=theme.NAVY))
         for c in cards:
             r += 1
             ws.write_string(r, 1, c["subject_name"], f.cell(bold=True))
-            ws.merge_range(r, 2, r, 12, "  ".join(c["notes"]), f.cell(text_wrap=True, valign="top"))
-            ws.set_row(r, 15 * max(2, 1 + len(" ".join(c["notes"])) // 120))
+            ws.write_string(r, 2, c["name"], f.cell())
+            txt = "  ".join(c["notes"])
+            ws.merge_range(r, 3, r, 12, txt, f.cell(text_wrap=True, valign="top"))
+            ws.set_row(r, 15 * max(2, 1 + len(txt) // 110))
         if bt["untaught"]:
             r += 2
-            ws.write_string(r, 1, "No teacher added", f.cell(bold=True, font_color=theme.NAVY))
+            ws.write_string(r, 1, "No teacher added for", f.cell(bold=True, font_color=theme.NAVY))
             for u in bt["untaught"]:
                 r += 1
                 ws.write_string(r, 1, u["name"], f.cell())
-                ws.write(r, 3, u["candidates"], f.cell(align="center"))
+                ws.write(r, 2, f"{u['candidates']} students", f.cell())
+        if cards:
+            ch = self.wb.add_chart({"type": "bar"})
+            ch.add_series({"name": "vs own other subjects", "categories": [wb_name, first, 2, last, 2],
+                           "values": [wb_name, first, 9, last, 9], "fill": {"color": theme.BLUE},
+                           "data_labels": {"value": True, "num_format": "0.0"}})
+            ch.set_title({"name": "Marks above / below the students' own other subjects", "name_font": {"size": 11}})
+            ch.set_legend({"none": True})
+            ch.set_y_axis({"reverse": True})
+            ch.set_size({"width": 620, "height": 100 + 28 * len(cards)})
+            ws.insert_chart(6, 14, ch)
+            st = self.wb.add_chart({"type": "bar", "subtype": "percent_stacked"})
+            for k, (lab, color) in enumerate([("Better", theme.GREEN), ("About the same", "#9FB3C4"), ("Worse", theme.RED)]):
+                st.add_series({"name": lab, "categories": [wb_name, sf, 1, sl, 1], "values": [wb_name, sf, 3 + k, sl, 3 + k],
+                               "fill": {"color": color}, "gap": 60})
+            st.set_title({"name": "Did better / same / worse than in their other subjects", "name_font": {"size": 11}})
+            st.set_legend({"position": "bottom"})
+            st.set_y_axis({"reverse": True})
+            st.set_size({"width": 620, "height": 120 + 28 * len(cards)})
+            ws.insert_chart(6 + 7 + int((100 + 28 * len(cards)) / 20), 14, st)
+
+    def sections_sheet(self):
+        """Every board student: the section found for them and how (to check the matching)."""
+        ws, f, bt, an = self.ws["Students & Sections"], self.f, self.teachers, self.an
+        self._sw.banner(ws, "Students & Sections", "Which section each student was found in (from the class lists), and how.", 6,
+                        logo=False)
+        ws.set_column(0, 0, 2)
+        ws.set_column(1, 1, 28)
+        ws.set_column(2, 3, 14)
+        ws.set_column(4, 4, 18)
+        ws.set_column(5, 5, 30)
+        pl = bt["placement"]
+        r = 3
+        if pl["check"]:
+            ws.write_string(r, 1, "Please check - matched by a similar name", f.cell(bold=True, font_color=theme.AMBER))
+            r += 1
+            for c, h in enumerate(["Name in the board results", "Section", "Name in the class list"], 1):
+                ws.write(r, c, h, f.header())
+            for x in pl["check"]:
+                r += 1
+                ws.write_string(r, 1, x["name"], f.cell())
+                ws.write_string(r, 2, x["section"], f.cell(align="center"))
+                ws.write_string(r, 3, x["list_name"], f.cell())
+            r += 2
+        if pl["unplaced"]:
+            ws.write_string(r, 1, "Not placed in a section", f.cell(bold=True, font_color=theme.RED))
+            r += 1
+            for c, h in enumerate(["Name", "Why"], 1):
+                ws.write(r, c, h, f.header())
+            for x in pl["unplaced"]:
+                r += 1
+                ws.write_string(r, 1, x["name"], f.cell())
+                ws.write_string(r, 2, x["why"], f.cell())
+            r += 2
+        ws.write_string(r, 1, f"{pl['placed']} of {pl['total']} students placed in a section.",
+                        f.cell(bold=True, font_color=theme.NAVY))
 
     # -------------------------------------------------------------- checks + source
     def checks(self):

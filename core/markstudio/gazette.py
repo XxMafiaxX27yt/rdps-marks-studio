@@ -32,11 +32,16 @@ class BoardStudent:
     comp: list = field(default_factory=list)       # compartment subject codes
     ref: Ref = None
     flag: str = ""
+    adm_no: str = ""        # only in the school's own board tables (boardtable.py)
+    board_roll: str = ""
+    class_roll: str = ""
+    section: str = ""
 
     def to_dict(self):
         return {"roll": self.roll, "gender": self.gender, "name": self.name,
                 "subjects": [dict(s, marks=s["marks"]) for s in self.subjects],
-                "internal": self.internal, "result": self.result, "comp": self.comp,
+                "internal": self.internal, "result": self.result, "comp": self.comp, "adm_no": self.adm_no,
+                "section": self.section,
                 "ref": self.ref.to_dict() if self.ref else None}
 
 
@@ -55,6 +60,7 @@ class Gazette:
     totals: dict = field(default_factory=dict)
     issues: list = field(default_factory=list)
     lines_read: int = 0
+    kind: str = "gazette"  # 'gazette' (CBSE's own file) or 'table' (the school's own board table)
 
 
 def looks_like_gazette(text):

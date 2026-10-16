@@ -207,8 +207,7 @@ def test_board_teachers_on_sample_gazette():
     names = {c["subject_name"]: c for c in t["cards"]}
     # no school marks with sections, so the two English teachers are shown together
     assert names["English"]["names"] == ["Mr. Test Two", "Ms. Test Three"] and names["English"]["note"]
-    assert names["Physics"]["fair"]["verdict"] in ("Above their other subjects", "Below their other subjects",
-                                                   "About the same as their other subjects")
+    assert names["Physics"]["fair"]["verdict"] == "Only teacher of this subject"
     assert "Mathematics" in [u["name"] for u in t["untaught"]]
     d = json.loads(api.ask("which teachers are not doing well in boards"))["data"]
     assert d["query"] == {"op": "board_teachers", "order": "low"} and d["table"]["rows"]
@@ -228,10 +227,109 @@ def test_board_teachers_on_sample_gazette():
     names = {c["subject_name"]: c for c in t["cards"]}
     # no school marks with sections, so the two English teachers are shown together
     assert names["English"]["names"] == ["Mr. Test Two", "Ms. Test Three"] and names["English"]["note"]
-    assert names["Physics"]["fair"]["verdict"] in ("Above their other subjects", "Below their other subjects",
-                                                   "About the same as their other subjects")
+    assert names["Physics"]["fair"]["verdict"] == "Only teacher of this subject"
     assert "Mathematics" in [u["name"] for u in t["untaught"]]
     d = json.loads(api.ask("which teachers are not doing well in boards"))["data"]
     assert d["query"] == {"op": "board_teachers", "order": "low"} and d["table"]["rows"]
     wb = openpyxl.load_workbook(io.BytesIO(api.board_workbook_bytes()))
     assert "Teachers" in wb.sheetnames
+
+
+# ---------------------------------------------------------------- board tables, class lists, each teacher on their own
+TABLE_TXT = """Class XII Board Examination 2025 - Board Results (made-up)
+Each subject out of 100.
+
+Roll Admn No  Student Name              Eng  Phy  Chem  Math  CS  Total   Perc%  Grd  Result
+--------------------------------------------------------------------------------------------
+1    9901     Riya Sen                   89   91    85    72  93    430    86.0   A2  PASS
+2    C-17     Om Prakash Rao             64   68    80    81  63    356    71.2   B1  PASS
+3    9905     Asha Devi                  30   45    50    41  52    999    43.6   C2  COMP
+"""
+
+
+def test_board_results_in_the_schools_own_table():
+    api.init()
+    info = json.loads(api.add_board_file("XII Board Results.txt", TABLE_TXT.encode()))["data"]
+    assert info["table"] and info["students"] == 3 and info["cls"] == "XII"
+    g = api.S.project.gazettes[-1]
+    om = next(x for x in g.students if x.name == "Om Prakash Rao")
+    assert om.adm_no == "C-17" and [x["marks"] for x in om.subjects] == [64, 68, 80, 81, 63]
+    asha = next(x for x in g.students if x.name == "Asha Devi")
+    assert asha.result == "COMP" and asha.comp == ["301"]
+    codes = {i.code for i in g.issues}
+    assert "file_total_mismatch" in codes and "board_no_grades" in codes        # 999 is not the sum
+    b = json.loads(api.board_summary())["data"]["boards"][0]
+    eng = next(x for x in b["subjects"] if x["code"] == "301")
+    assert eng["failed"] == 1 and eng["bands"][0] == ["90-100", 0]
+
+
+def test_a_school_file_with_a_board_roll_column_stays_a_school_file():
+    from markstudio import boardtable, readers
+    from markstudio.sample import sample_files
+    for name, data in sample_files(Config()):
+        assert not boardtable.looks_like_board(name, readers.read_file(name, data)), name
+    assert boardtable.looks_like_board("XII_Board_Marks.txt", readers.read_file("x.txt", TABLE_TXT.encode()))
+    assert not boardtable.looks_like_board("Pre Board XII.csv", readers.read_file("x.csv", b"Name,English\nA,1\n"))
+
+
+def test_class_list_from_pdf_words_with_wrapped_name_and_footer():
+    from markstudio import readers, classlist
+    rows = [["Class & Sec: XII B (2025-26)"], [], ["SNo.", "Roll No.", "Admn. No.", "Student's Name", "Remarks"],
+            ["1", "1", "9901", "Riya Sen"], ["2", "2", "9902", "Om Prakash"], ["", "", "", "Rao"],
+            ["3", "3", "C-17", "Asha Devi"], ["10:21 AM Page 1 of 1"]]
+    xs = [40, 110, 170, 260, 480]
+    words = [{"text": t, "x0": xs[c], "x1": xs[c] + 6 * len(t), "y0": 20 * r, "y1": 20 * r + 10}
+             for r, row in enumerate(rows) for c, t in enumerate(row) if t]
+    sheets, _ = readers.read_pages("XII B list.pdf", [{"page": 1, "words": words, "ocr": False}])
+    cl = classlist.read("XII B list.pdf", sheets, Config(), Vocab(Config()))
+    assert len(cl) == 1 and (cl[0]["cls"], cl[0]["section"]) == ("XII", "B")
+    assert [s["name"] for s in cl[0]["students"]] == ["Riya Sen", "Om Prakash Rao", "Asha Devi"]
+    assert cl[0]["students"][2]["adm_no"] == "C-17"
+
+
+def test_each_teacher_on_their_own_sections():
+    import io
+    import openpyxl
+    api.init()
+    out = json.loads(api.add_sample_board_demo())["data"]
+    assert [(c["cls"], c["section"], c["count"]) for c in out["class_lists"]] == [("XII", "A", 30), ("XII", "B", 30), ("XII", "C", 30)]
+    bt = json.loads(api.board_teachers())["data"]
+    p = bt["placement"]
+    assert bt["split"] and p["placed"] == 90 and p["by"]["admission no"] == 60 and len(p["check"]) == 1
+    by = {c["name"]: c for c in bt["cards"]}
+    # the made-up data has Physics XII-A 5 marks better and XII-B / XII-C 2 marks lower
+    assert by["Ms. Neha Sinha"]["candidates"] == 30 and by["Ms. Neha Sinha"]["fair"]["verdict"] == "Clear positive impact"
+    assert by["Mr. Rohan Das"]["candidates"] == 60 and by["Mr. Rohan Das"]["fair"]["verdict"] == "Worth a conversation"
+    assert by["Ms. Priya Menon"]["fair"]["verdict"] == "Only teacher of this subject"
+    v = by["Ms. Neha Sinha"]["viz"]
+    assert sum(v["split"].values()) == 30 and len(v["points"]) == 30 and v["bands_are"] == "marks"
+    wb = openpyxl.load_workbook(io.BytesIO(api.board_workbook_bytes()))
+    assert "Teachers" in wb.sheetnames and "Students & Sections" in wb.sheetnames
+    assert len(wb["Teachers"]._charts) == 2
+    d = json.loads(api.ask("which teachers are not doing well in boards"))["data"]
+    assert d["query"]["op"] == "board_teachers" and d["table"]["rows"][0][1] == "Mr. Rohan Das"
+
+
+def test_class_lists_give_school_students_their_section():
+    import io
+    import xlsxwriter
+    api.init()
+    buf = io.BytesIO()
+    wb = xlsxwriter.Workbook(buf)
+    ws = wb.add_worksheet("XI C Roll List")
+    for r, row in enumerate([["Class & Sec: XI C"], [], ["Roll No.", "Admn. No.", "Student's Name"], [1, 501, "Riya Sen"], [2, 502, "Om Rao"]]):
+        ws.write_row(r, 0, row)
+    wb.close()
+    api.add_class_list("XI C list.xlsx", buf.getvalue())
+    api.add_file("Class XI Half Yearly.csv", b"Name,English,Maths\nRiya Sen,60,55\nOm Rao,70,65\n")
+    a = json.loads(api.analyze())["data"]
+    assert {s.section for s in api.S.ds.students.values()} == {"C"}
+
+
+def test_total_percentage_grade_result_columns_are_understood():
+    api.init()
+    api.add_file("Class XII-B Half Yearly.csv", b"Roll,Name,Eng,Maths,Total,Perc%,Grd,Result\n1,Asha Rao,70,65,135,67.5,B1,PASS\n")
+    st = json.loads(api.state())["data"]
+    roles = {c["header"]: c["role"] for c in st["files"][0]["sheets"][0]["columns"]}
+    assert roles["Total"] == "file_total" and roles["Perc%"] == "file_percent"
+    assert roles["Grd"] == "file_grade" and roles["Result"] == "file_result"

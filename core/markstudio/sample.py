@@ -208,3 +208,90 @@ def sample_gazette(cfg, seed=5, n=60):
     lines.append(f"\nTOTAL CANDIDATES :   {n} TOTAL PASS :   {passed} TOTAL COMPTT. :     {comp} "
                  f"TOTAL ESSENTIAL REPEAT :     0 TOTAL ABSENT :     0")
     return "\n".join(lines) + "\n"
+
+
+# ---------------------------------------------------------------- board results in the school's own table + class lists
+_DEMO = None
+
+
+def _board_demo(seed=11):
+    """90 made-up Class XII students in 3 sections, with made-up teacher effects:
+    Physics XII-A +5, XII-B/C -2; English XII-A/B +2, XII-C -3; Maths XII-C +3."""
+    global _DEMO
+    if _DEMO is not None:
+        return _DEMO
+    rnd = random.Random(seed)
+    used, studs = set(), []
+    effect = {("A", "042"): 5, ("B", "042"): -2, ("C", "042"): -2, ("A", "301"): 2, ("B", "301"): 2, ("C", "301"): -3,
+              ("C", "041"): 3}
+    adm = 6100
+    for sec in "ABC":
+        for k in range(30):
+            girl = rnd.random() < 0.5
+            while True:
+                name = f"{rnd.choice(FIRST_F if girl else FIRST_M)} {rnd.choice(LAST)}"
+                if name not in used:
+                    used.add(name)
+                    break
+            adm += rnd.randint(1, 9)
+            ability = rnd.gauss(0.74, 0.11)
+            marks = {}
+            for code in ("301", "042", "043", "041", "083"):
+                m = 100 * (ability + rnd.gauss(0, 0.06)) + effect.get((sec, code), 0)
+                marks[code] = max(21, min(99, int(round(m))))
+            studs.append({"sec": sec, "name": name, "adm": str(adm), "marks": marks, "girl": girl})
+    _DEMO = studs
+    return studs
+
+
+def sample_board_table(cfg):
+    """The school's own board-results layout (like a typed TXT), made-up names and admission numbers."""
+    studs = sorted(_board_demo(), key=lambda s: int(s["adm"]))
+    lines = ["Class XII Board Examination 2025 - Board Results (MADE-UP SAMPLE DATA)",
+             "Each subject out of 100; Total out of 500. Pass = min 33 in every subject.", "",
+             "Roll Admn No  Student Name              Eng  Phy  Chem  Math  CS  Total   Perc%  Result",
+             "-" * 86]
+    for i, s in enumerate(studs, 1):
+        m = s["marks"]
+        tot = sum(m.values())
+        res = "PASS" if min(m.values()) >= 33 else "COMP"
+        lines.append(f"{i:<4} {s['adm']:<8} {s['name']:<25} {m['301']:>3}  {m['042']:>3}  {m['043']:>4}  {m['041']:>4}  "
+                     f"{m['083']:>3}  {tot:>5}  {tot / 5:>6.1f}  {res}")
+    return "Sample XII Board Results (made-up).txt", "\n".join(lines) + "\n"
+
+
+def sample_class_lists(cfg):
+    """One made-up roll-number list per section (Excel), like a school's class list. One name is spelt a little
+    differently from the board results, to show the 'please check' list."""
+    import io
+    import xlsxwriter
+    out = []
+    studs = _board_demo()
+    for sec in "ABC":
+        buf = io.BytesIO()
+        wb = xlsxwriter.Workbook(buf, {"in_memory": True})
+        ws = wb.add_worksheet(f"XII {sec} Roll List")
+        ws.write(0, 0, f"Class & Sec: XII {sec} (2024-25)  - MADE-UP SAMPLE")
+        for c, h in enumerate(["SNo.", "Roll No.", "Admn. No.", "Student's Name", "Remarks"]):
+            ws.write(2, c, h)
+        mine = [s for s in studs if s["sec"] == sec]
+        for i, s in enumerate(mine, 1):
+            name = s["name"]
+            if sec == "C" and i == 4:
+                name = name[:-1] + ("a" if name[-1] != "a" else "e")      # a small spelling difference
+            ws.write_row(2 + i, 0, [i, i, int(s["adm"]) if sec != "C" else "", name, ""])
+        wb.close()
+        out.append((f"XII {sec} - Roll Number List (made-up).xlsx", buf.getvalue()))
+    return out
+
+
+def sample_board_teachers():
+    """Made-up teachers for the board demo (invented names)."""
+    return [{"name": "Ms. Kavya Rao", "subject": "301", "classes": "XII-A, XII-B"},
+            {"name": "Mr. Arjun Iyer", "subject": "301", "classes": "XII-C"},
+            {"name": "Ms. Neha Sinha", "subject": "042", "classes": "XII-A"},
+            {"name": "Mr. Rohan Das", "subject": "042", "classes": "XII-B, XII-C"},
+            {"name": "Ms. Priya Menon", "subject": "043", "classes": "XII"},
+            {"name": "Mr. Karan Ghosh", "subject": "041", "classes": "XII-A, XII-B"},
+            {"name": "Ms. Sana Pillai", "subject": "041", "classes": "XII-C"},
+            {"name": "Ms. Ritu Bose", "subject": "083", "classes": "XII"}]

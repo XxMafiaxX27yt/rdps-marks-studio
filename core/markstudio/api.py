@@ -102,6 +102,7 @@ def set_settings(settings_json):
     p._n = old_project._n
     p.gazettes = old_project.gazettes
     p.file_teachers = old_project.file_teachers
+    p.class_lists, p._cl = old_project.class_lists, old_project._cl
     S.project = p
     if S.restored and S.ds is not None:
         # a workbook that was opened again has no files to read: keep its data, work it out with the new rules
@@ -171,6 +172,61 @@ def add_sample(mistakes=False):
     for name, data in sample_files(S.cfg, mistakes=bool(mistakes)):
         out.append(S.project.add_file(name, data))
     return out
+
+
+@safe
+def add_board_file(name, data):
+    """From the Board page: CBSE's gazette or the school's own board-results table."""
+    info = S.project.add_board_file(name, bytes(data))
+    _refresh_boards()
+    return info
+
+
+@safe
+def add_board_pages(name, pages_json):
+    info = S.project.add_board_pages(name, json.loads(pages_json))
+    _refresh_boards()
+    return info
+
+
+# ================================================================== class lists
+def _class_lists_out():
+    return [{"id": c["id"], "file": c["file"], "sheet": c["sheet"], "cls": c["cls"], "section": c["section"],
+             "needs": c["needs"], "count": len(c["students"]),
+             "sections": sorted({f"{s['cls']}-{s['section']}" if s["section"] else s["cls"] for s in c["students"]})}
+            for c in S.project.class_lists]
+
+
+@safe
+def add_class_list(name, data):
+    S.project.add_class_list(name, bytes(data))
+    return _class_lists_out()
+
+
+@safe
+def add_class_list_pages(name, pages_json):
+    S.project.add_class_list_pages(name, json.loads(pages_json))
+    return _class_lists_out()
+
+
+@safe
+def class_lists():
+    return _class_lists_out()
+
+
+@safe
+def set_class_list(list_id, cls, section):
+    from .classlist import set_class
+    for c in S.project.class_lists:
+        if c["id"] == list_id:
+            set_class(c, cls, section)
+    return _class_lists_out()
+
+
+@safe
+def remove_class_list(list_id):
+    S.project.class_lists = [c for c in S.project.class_lists if c["id"] != list_id]
+    return _class_lists_out()
 
 
 @safe
@@ -532,7 +588,7 @@ def board_summary():
     years = board.compare_years(S.boards) if len({a["meta"]["year"] for a in S.boards}) > 1 else None
     link = board.school_vs_board(S.boards[-1], S.ds, S.res, S.cfg) if S.res else None
     from .teachers import analyse_board
-    bt = analyse_board(S.boards[-1], all_teachers(), S.cfg, S.ds)
+    bt = _board_teachers()
     return {"boards": out, "years": years, "link": {k: v for k, v in link.items() if k != "links"} if link else None,
             "teachers": bt}
 
@@ -548,7 +604,39 @@ def board_workbook_bytes():
         texts.append((src_g.file, getattr(src_g, "raw_text", "")))
     from .teachers import analyse_board
     return write_board_workbook(an, S.cfg, years=years, link=link, raw_texts=texts,
-                                teachers=analyse_board(an[-1], all_teachers(), S.cfg, S.ds))
+                                teachers=_board_teachers(an[-1]))
+
+
+def _board_teachers(an=None):
+    from .teachers import analyse_board
+    an = an or S.boards[-1]
+    out = analyse_board(an, all_teachers(), S.cfg, S.ds, S.project.class_lists)
+    return out
+
+
+@safe
+def board_teachers():
+    """Teachers on the latest board results (Teachers page, Board results tab)."""
+    if not S.project.gazettes:
+        raise ValueError("Upload the board results on the Board page first.")
+    _refresh_boards()
+    return _board_teachers()
+
+
+@safe
+def add_sample_board_demo():
+    """Made-up board results (school's own table layout) + made-up class lists + made-up teachers."""
+    from .sample import sample_board_table, sample_class_lists, sample_board_teachers
+    name, text = sample_board_table(S.cfg)
+    S.project.add_board_file(name, text.encode())
+    for fname, data in sample_class_lists(S.cfg):
+        S.project.add_class_list(fname, data)
+    have = {(t["name"], t["subject"]) for t in S.project.file_teachers}
+    for t in sample_board_teachers():
+        if (t["name"], t["subject"]) not in have:
+            S.project.file_teachers.append(dict(t, source="made-up sample"))
+    _refresh_boards()
+    return {"class_lists": _class_lists_out()}
 
 
 def board_workbook_name():
@@ -565,7 +653,7 @@ def ask(question, hints_json="", force_json=""):
     parsed = U.parse(question, hints, force)
     if "query" not in parsed:
         return parsed
-    E = Engine(S.ds, S.res, S.boards, teachers=all_teachers(), cfg=S.cfg)
+    E = Engine(S.ds, S.res, S.boards, teachers=all_teachers(), cfg=S.cfg, class_lists=S.project.class_lists)
     try:
         ans = E.run(parsed["query"])
     except QueryError as ex:
@@ -578,7 +666,8 @@ def ask(question, hints_json="", force_json=""):
 
 @safe
 def run_query(query_json):
-    return Engine(S.ds, S.res, S.boards, teachers=all_teachers(), cfg=S.cfg).run(json.loads(query_json))
+    return Engine(S.ds, S.res, S.boards, teachers=all_teachers(), cfg=S.cfg,
+                  class_lists=S.project.class_lists).run(json.loads(query_json))
 
 
 @safe
@@ -770,7 +859,8 @@ def header_labels():
     for role, words in (("name", ["student name", "name of the student"]), ("father", ["father's name"]),
                         ("mother", ["mother's name"]), ("roll", ["roll number"]), ("adm_no", ["admission number"]),
                         ("board_roll", ["board roll number"]), ("section", ["section"]), ("class", ["class"]),
-                        ("ignore", ["total marks", "percentage", "grade", "result", "rank", "remarks"])):
+                        ("file_total", ["total marks"]), ("file_percent", ["percentage"]), ("file_grade", ["grade"]),
+                        ("file_result", ["result pass or fail"]), ("ignore", ["rank", "remarks"])):
         for w in words:
             out.append({"label": w, "role": role})
     for code, s in cfg.subjects.items():
