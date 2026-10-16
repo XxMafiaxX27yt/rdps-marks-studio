@@ -101,8 +101,14 @@ def set_settings(settings_json):
             p.layouts[(src.id, sh.name)] = lay
     p._n = old_project._n
     p.gazettes = old_project.gazettes
+    p.file_teachers = old_project.file_teachers
     S.project = p
-    S.ds = S.res = None
+    if S.restored and S.ds is not None:
+        # a workbook that was opened again has no files to read: keep its data, work it out with the new rules
+        S.ds.cfg = new
+        S.res = None
+    else:
+        S.ds = S.res = None
     return {"settings": new.settings}
 
 
@@ -119,6 +125,14 @@ def load_remembered(js):
 
 
 # ================================================================== files
+def _leave_restored():
+    """New marks files after a saved workbook was opened: start from the files (the workbook's data is dropped)."""
+    if S.restored:
+        S.restored = None
+        S.ds = S.res = None
+        S.recipe = {"items": []}
+
+
 @safe
 def add_file(name, data):
     data = bytes(data)
@@ -134,12 +148,16 @@ def add_file(name, data):
     info = S.project.add_file(name, data)
     if info["kind"] == "gazette":
         _refresh_boards()
+    else:
+        _leave_restored()
     return info
 
 
 @safe
 def add_pages(name, pages_json):
     info = S.project.add_pages(name, json.loads(pages_json))
+    if info["kind"] != "gazette":
+        _leave_restored()
     if info["kind"] == "gazette":
         _refresh_boards()
     return info
@@ -148,6 +166,7 @@ def add_pages(name, pages_json):
 @safe
 def add_sample(mistakes=False):
     from .sample import sample_files
+    _leave_restored()
     out = []
     for name, data in sample_files(S.cfg, mistakes=bool(mistakes)):
         out.append(S.project.add_file(name, data))

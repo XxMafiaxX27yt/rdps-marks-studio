@@ -13,7 +13,7 @@ from . import views
 OPS = {"top", "bottom", "list", "count", "average", "highest", "lowest", "hardest", "easiest", "compare",
        "student", "student_subjects", "rank", "pass_rate", "distribution", "improved", "dropped", "absent",
        "help", "board_top", "board_subject", "board_summary", "board_comp", "board_student", "summary", "toppers_by",
-       "teacher"}
+       "teacher", "internals"}
 COMBO_SETS = {"*Commerce": {"Commerce with Maths", "Commerce"}, "*Science": {"PCM", "PCB", "PCMB", "Science"}}
 LABELS = {"Strong", "Weak", "Needs attention", "On track"}
 
@@ -799,6 +799,73 @@ class Engine:
                 "table": {"columns": ["Subject", "Teacher", "Classes", "Fair check", "Effect (points)", "Range from", "Range to",
                                       "Average %"], "rows": rows},
                 "chart": {"type": "bar", "labels": [r[1] for r in rows], "values": [r[4] for r in rows], "label": "Effect (points)"}}
+
+    # ---- internal assessment (portfolio / project / notebook, AI practical parts)
+    def op_internals(self, q):
+        cfg = self.cfg
+        sc = q.get("scope", {})
+        part = q.get("part")
+        keys_for = {"notebook": ("i_notebook", "p_notebook"), "portfolio": ("i_portfolio",), "project": ("i_project",),
+                    "viva": ("p_viva",), "file": ("p_file",)}
+        want = keys_for.get(part)
+        # the latest big exam of each class (internal marks belong to the big exams)
+        em = {}
+        for c in self.classes_in(sc):
+            ex = [e for e in self.ds.exams_for(c) if cfg.exam_kind(e) == "major"]
+            em[c] = sc.get("exam") or (ex[-1] if ex else None)
+        rows = [r for r in self.res.rows if self.in_scope(self.ds.students[r.sid], sc)
+                and em.get(self.ds.students[r.sid].cls) == r.exam and r.pr_max and r.pr_label == "Internal"
+                and (not q.get("subject") or r.subject == q["subject"])]
+        if not rows:
+            return {"text": f"No internal marks were given for {self.scope_text(sc, sc.get('exam'))} - those subjects are "
+                            "worked out of the written paper alone.", "how": "Looked for internal assessment marks in the big exams."}
+        lowp = Decimal(str(cfg.rules.get("low_percent", 50)))
+        if q.get("level") == "low":
+            hits = {}
+            for r in rows:
+                if want:
+                    for k, (v, mx) in (r.parts or {}).items():
+                        if k in want and (v is None or (mx and v / mx * 100 < lowp)):
+                            hits.setdefault(r.sid, []).append(f"{cfg.subject_name(r.subject)} {cfg.part_label(k).lower()} "
+                                                              f"{'missing' if v is None else _p(v) + '/' + _p(mx)}")
+                elif r.pr is None or r.pr / r.pr_max * 100 < lowp:
+                    hits.setdefault(r.sid, []).append(f"{cfg.subject_name(r.subject)} internal "
+                                                      f"{'missing' if r.pr is None else _p(r.pr) + '/' + _p(r.pr_max)}")
+            sts = sorted((self.ds.students[s] for s in hits), key=lambda st: (st.cls, st.section, st.name))
+            what = f"low {cfg.part_label(want[0]).lower() if want else 'internal'} marks (below {lowp}%, or missing)"
+            return {"text": f"{len(sts)} student{'s' if len(sts) != 1 else ''} with {what} - {self.scope_text(sc)}.",
+                    "how": "Internal marks of the latest big exam of each class." ,
+                    "table": {"columns": ["Name", "Class", "Roll", "Why"],
+                              "rows": [self.student_cols(st) + ["; ".join(hits[st.sid])] for st in sts]}}
+        by = {}
+        for r in rows:
+            d = by.setdefault(r.subject, {"n": 0, "tot": [], "parts": {}})
+            if r.pr is not None:
+                d["n"] += 1
+                d["tot"].append(r.pr / r.pr_max * 100)
+            for k, (v, mx) in (r.parts or {}).items():
+                if v is not None and mx:
+                    d["parts"].setdefault(k, []).append(v / mx * 100)
+        part_keys = []
+        for d in by.values():
+            for k in d["parts"]:
+                if k not in part_keys:
+                    part_keys.append(k)
+        avg = lambda xs: float(round(sum(xs, Decimal(0)) / len(xs), 1)) if xs else None
+        out = []
+        for subj in cfg.order_subjects(set(by)):
+            d = by[subj]
+            out.append([cfg.subject_name(subj), d["n"], avg(d["tot"])] + [avg(d["parts"].get(k, [])) for k in part_keys])
+        allp = {k: avg([x for d in by.values() for x in d["parts"].get(k, [])]) for k in part_keys}
+        lowest = min((k for k in allp if allp[k] is not None), key=lambda k: allp[k], default=None)
+        text = f"Internal marks - {self.scope_text(sc)} (latest big exam): " + \
+            ", ".join(f"{r[0]} {r[2]}%" for r in out if r[2] is not None) + "."
+        if lowest:
+            text += f" Lowest part overall: {cfg.part_label(lowest)} ({allp[lowest]}%)."
+        return {"text": text, "how": "Average % of the internal marks (and of each part, when the parts were given).",
+                "table": {"columns": ["Subject", "Students", "Internal %"] + [cfg.part_label(k) + " %" for k in part_keys],
+                          "rows": out},
+                "chart": {"type": "bar", "labels": [r[0] for r in out], "values": [r[2] for r in out], "label": "Internal %"}}
 
     def op_help(self, q):
         return {"text": "Ask about the uploaded marks in your own words. For example: 'Top 5 in Class 9', "

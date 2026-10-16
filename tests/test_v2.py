@@ -148,3 +148,48 @@ def test_ask_understands_every_class_and_new_questions():
         assert d["query"]["op"] == op, (q, d["query"])
         if cls:
             assert d["query"]["scope"].get("cls") == cls, (q, d["query"])
+
+
+def test_ask_internal_marks_and_meanings():
+    api.init()
+    api.add_sample(False)
+    api.analyze()
+    d = json.loads(api.ask("internal marks of class 6"))["data"]
+    assert d["query"]["op"] == "internals" and d["table"]["rows"]
+    d = json.loads(api.ask("who has low internal marks in class 9"))["data"]
+    assert d["query"].get("level") == "low"
+    d = json.loads(api.ask("who all are weak in chemistry"))["data"]
+    assert d["query"]["conds"] == [{"level": "low", "subject": "043"}]
+    pcts = [float(r[3].split("Chemistry ")[1].split("%")[0]) for r in d["table"]["rows"]]
+    assert pcts == sorted(pcts) and all(p < 50 for p in pcts)          # lowest first, all below 50%
+    d = json.loads(api.ask("which teachers are not working good"))["data"]
+    assert d["query"]["op"] == "teacher" and d["query"].get("order") == "low"
+
+
+def test_reopened_workbook_then_settings_or_new_files():
+    api.init()
+    api.add_sample(False)
+    api.analyze()
+    wb = api.build_workbook_bytes(False)
+    assert json.loads(api.load_workbook("saved.xlsx", wb))["ok"]
+    st = json.loads(api.get_settings())["data"]
+    st["rules"]["pass_percent"] = 40
+    assert json.loads(api.set_settings(json.dumps(st)))["ok"]
+    a = json.loads(api.analyze())
+    assert a["ok"] and a["data"]["students"] == 364
+    api.add_file("Class VII Half Yearly.csv", b"Roll,Name,Section,English,Maths\n1,Riya Sen,A,62,40\n")
+    a = json.loads(api.analyze())["data"]
+    assert a["students"] == 1 and not a["restored"]
+
+
+def test_remove_teachers_completely():
+    api.init()
+    api.add_sample(False)
+    api.analyze()
+    lst = json.loads(api.teachers_list())["data"]["from_files"]
+    t = lst[0]
+    json.loads(api.remove_file_teacher(t["name"], t["subject"]))
+    names = [c["name"] for c in json.loads(api.teacher_analysis())["data"]["cards"]]
+    assert t["name"] not in names
+    json.loads(api.remove_all_teachers())
+    assert json.loads(api.teacher_analysis())["data"]["cards"] == []

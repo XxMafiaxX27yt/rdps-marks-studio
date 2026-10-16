@@ -351,6 +351,9 @@ class Understander:
         if e["teachers"] or _has(low, ["teacher", "teachers", "teacher wise", "teacherwise", "faculty", "teaching",
                                        "who teaches", "taught by"]):
             return "teacher", "keyword"
+        if not has_student and _has(low, ["internal", "internals", "portfolio", "portfolios", "project", "projects",
+                                          "notebook", "notebooks", "nbk", "viva", "practical file", "internal assessment"]):
+            return "internals", "keyword"
         # the class's weakest / strongest subject (no student named)
         if not has_student and _has(low, ["subject", "subjects"]) and not e["thresholds"] and not _has(low, kw["count"]):
             if _has(low, ["weakest", "weekest", "weak", "worst", "poorest", "lowest", "kamzor", "toughest"]) and \
@@ -506,6 +509,17 @@ class Understander:
             if e["subjects"] and q["by"] == "section":
                 q["subject"] = e["subjects"][0]
             intent = "toppers_by"
+        if intent == "internals":
+            if e["subjects"]:
+                q["subject"] = e["subjects"][0]
+            if _has(e["low"], WEAK + FAIL + ["low", "less", "kam", "below", "not submitted", "didn't submit", "did not submit",
+                                             "missing", "incomplete"]):
+                q["level"] = "low"
+            for part, words in (("notebook", ["notebook", "nbk", "notebooks"]), ("portfolio", ["portfolio", "portfolios"]),
+                                ("project", ["project", "projects"]), ("viva", ["viva"]), ("file", ["practical file"])):
+                if _has(e["low"], words):
+                    q["part"] = part
+            return self._done(q, how, e)
         if intent == "summary":
             if e["subjects"]:
                 q["subject"] = e["subjects"][0]
@@ -736,7 +750,7 @@ class Understander:
                 "student_subjects": "student's subjects in order", "rank": "student's rank", "pass_rate": "pass rate",
                 "distribution": "grade distribution", "improved": "most improved", "dropped": "students who dropped",
                 "absent": "absent / on leave", "help": "help", "summary": "summary of results",
-                "toppers_by": "toppers", "teacher": "teacher results"}.get(op, op.replace("_", " "))
+                "toppers_by": "toppers", "teacher": "teacher results", "internals": "internal marks"}.get(op, op.replace("_", " "))
         parts = [bits]
         if q.get("n"):
             parts.append(f"(n = {q['n']})")

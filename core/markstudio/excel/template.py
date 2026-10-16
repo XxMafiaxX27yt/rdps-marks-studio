@@ -169,8 +169,8 @@ def template_bytes(cfg, cls, students=None, marks=None, exams=None, title_note="
     ws = wb.add_worksheet("Students")
     ws.freeze_panes(1, 0)
     heads = ["S.No", "Admission No", "Roll No"] + (["Board Roll No"] if cls in ("X", "XII") else []) + \
-            ["Student Name", "Father's Name", "Mother's Name", "Class", "Section"]
-    widths = [6, 13, 9] + ([14] if cls in ("X", "XII") else []) + [26, 24, 24, 7, 8]
+            ["Student Name", "Father's Name", "Mother's Name", "Class", "Section", "Gender"]
+    widths = [6, 13, 9] + ([14] if cls in ("X", "XII") else []) + [26, 24, 24, 7, 8, 8]
     if streams:
         heads += ["Group", "Subject 1", "Subject 2", "Subject 3", "Subject 4", "Subject 5", "Subject 6"]
         widths += [7, 18, 18, 18, 18, 18, 18]
@@ -182,7 +182,10 @@ def template_bytes(cfg, cls, students=None, marks=None, exams=None, title_note="
         ws.set_column(c, c, w)
     ws.set_row(0, 30)
     n_rows = max(len(students), 60)
-    c_first_extra = heads.index("Section") + 1
+    c_first_extra = heads.index("Gender") + 1
+    ws.data_validation(1, c_first_extra - 1, n_rows + 100, c_first_extra - 1,
+                       {"validate": "list", "source": ["M", "F"], "error_type": "warning",
+                        "input_title": "Gender", "input_message": "M or F (optional - used for girls / boys comparisons)"})
     if streams:
         ws.data_validation(1, c_first_extra + 1, n_rows + 100, c_first_extra + 6,
                            {"validate": "list", "source": f"=Lists!$A$1:$A${len(names)}",
@@ -197,7 +200,7 @@ def template_bytes(cfg, cls, students=None, marks=None, exams=None, title_note="
         rr = i + 1
         fmt = band if i % 2 else f.cell()
         vals = [i + 1, s.get("adm_no", ""), s.get("roll", "")] + ([s.get("board_roll", "")] if cls in ("X", "XII") else []) + \
-               [s.get("name", ""), s.get("father", ""), s.get("mother", ""), cls, s.get("section", "")]
+               [s.get("name", ""), s.get("father", ""), s.get("mother", ""), cls, s.get("section", ""), s.get("gender", "")]
         if streams:
             vals += [s.get("group", "")] + [cfg.subject_name(x) for x in s.get("subjects", [])][:6]
         elif langs:
