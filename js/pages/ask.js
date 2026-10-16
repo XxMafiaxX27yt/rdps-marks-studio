@@ -95,7 +95,7 @@ function draw() {
   log.scrollTop = log.scrollHeight;
 }
 
-async function ensureAI() {
+export async function ensureAI() {
   if (!prefs.aiUnderstanding || ai.status.embed !== "off") return;
   try {
     const ex = await engine.call("intent_examples");

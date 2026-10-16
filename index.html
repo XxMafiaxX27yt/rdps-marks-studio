@@ -13,18 +13,45 @@
 <link rel="apple-touch-icon" href="assets/img/icon-192.png">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="stylesheet" href="css/app.css">
+<script src="js/intro-flag.js"></script>
 </head>
 <body>
 <div id="splash" aria-hidden="true">
+  <!-- first visit: marks written in chalk fly into the school globe -->
+  <div class="chalk" id="chalk">
+    <div class="chalk-board">
+      <div class="chalk-title">Half Yearly · Class XI-A</div>
+      <div class="chalk-row" style="--i:0"><span>Riya</span><b>72</b></div>
+      <div class="chalk-row" style="--i:1"><span>Om</span><b>64</b></div>
+      <div class="chalk-row" style="--i:2"><span>Sara</span><b>91</b></div>
+      <div class="chalk-row" style="--i:3"><span>Kabir</span><b>58</b></div>
+      <div class="chalk-dust"></div>
+    </div>
+  </div>
   <div class="splash-inner">
-    <div class="splash-badge"><img src="assets/img/rdps-logo.png" alt=""></div>
+    <div class="splash-ring-wrap">
+      <svg class="splash-ring" viewBox="0 0 200 200" aria-hidden="true">
+        <circle class="ring-bg" cx="100" cy="100" r="92"/>
+        <circle class="ring-seg" data-seg="engine" cx="100" cy="100" r="92"/>
+        <circle class="ring-seg" data-seg="excel" cx="100" cy="100" r="92"/>
+        <circle class="ring-seg" data-seg="ask" cx="100" cy="100" r="92"/>
+        <circle class="ring-seg" data-seg="voice" cx="100" cy="100" r="92"/>
+      </svg>
+      <div class="splash-badge"><img src="assets/img/rdps-logo.png" alt=""></div>
+    </div>
+    <div class="splash-motto"><span class="dev">असतो मा सद्गमय</span><span class="en">Lead me from untruth to truth</span></div>
     <div class="splash-school">Rukmini Devi Public School</div>
     <div class="splash-title">Marks <span>Studio</span></div>
+    <div class="splash-parts">
+      <span data-part="engine"><i></i>Engine</span><span data-part="excel"><i></i>Excel</span>
+      <span data-part="ask"><i></i>Smart Ask</span><span data-part="voice"><i></i>Voice</span></div>
     <div class="splash-bar"><i id="splash-progress"></i></div>
     <div class="splash-note" id="splash-note">Getting ready…</div>
   </div>
+  <button class="splash-skip" id="splash-skip" type="button">Skip ›</button>
   <div class="splash-orbs"><i></i><i></i><i></i></div>
 </div>
+<div id="welcome" class="welcome hidden" role="status"></div>
 
 <header class="topbar">
   <a class="brand" href="#/school" aria-label="RDPS Marks Studio home">

@@ -348,6 +348,12 @@ async function loadTab() {
   if (!body) return;
   const { cls, exam, section } = S.view;
   try {
+    const c = S.summary.classes.find((x) => x.cls === cls);
+    const ex = c && c.exams.find((x) => x.code === exam);
+    LS.set("rdps.last", { label: c ? c.label : cls, exam: ex ? ex.name : exam,
+      when: new Date().toLocaleDateString("en-IN", { day: "numeric", month: "short" }) });
+  } catch { /* only a convenience */ }
+  try {
     if (S.tab === "overview") {
       const d = await engine.call("dashboard", cls, exam, section);
       body.innerHTML = overviewHtml(d);

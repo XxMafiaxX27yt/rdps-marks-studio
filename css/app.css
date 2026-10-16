@@ -68,9 +68,64 @@ button, input, select, textarea { font: inherit; color: inherit; }
   background: linear-gradient(140deg, #0B3C5D 0%, #0A2F49 55%, #06506F 100%); color: #fff; transition: opacity .6s ease, visibility .6s; }
 #splash.gone { opacity: 0; visibility: hidden; }
 .splash-inner { text-align: center; position: relative; z-index: 2; padding: 16px; }
-.splash-badge { width: 132px; height: 132px; margin: 0 auto 18px; border-radius: 50%; background: #fff; display: grid; place-items: center;
-  box-shadow: 0 0 0 8px rgba(255,255,255,.08), 0 20px 60px rgba(0,0,0,.35); animation: badge-in .9s cubic-bezier(.2,.9,.3,1.2) both; }
+.splash-ring-wrap { position: relative; width: 196px; height: 196px; margin: 0 auto 10px; display: grid; place-items: center;
+  animation: rise .7s ease calc(var(--d, 0s) + 0s) both; }
+.splash-ring { position: absolute; inset: 0; width: 196px; height: 196px; transform: rotate(-90deg); overflow: visible; }
+.splash-ring circle { fill: none; stroke-width: 6; stroke-linecap: round; }
+.splash-ring .ring-bg { stroke: rgba(255,255,255,.10); }
+.splash-ring .ring-seg { stroke: #7FD8FA; stroke-dasharray: 0 578; transition: stroke-dasharray .5s ease, stroke .4s; filter: drop-shadow(0 0 4px rgba(127,216,250,.6)); }
+.splash-ring .ring-seg.done { stroke: #9BF0C4; }
+.splash-badge { width: 132px; height: 132px; margin: 0 auto; border-radius: 50%; background: #fff; display: grid; place-items: center;
+  box-shadow: 0 0 0 8px rgba(255,255,255,.08), 0 20px 60px rgba(0,0,0,.35); animation: badge-in .9s cubic-bezier(.2,.9,.3,1.2) var(--d, 0s) both; }
+#splash.got .splash-badge { animation: badge-in .9s cubic-bezier(.2,.9,.3,1.2) var(--d, 0s) both, gulp .45s ease both; }
+.splash-motto { display: flex; flex-direction: column; align-items: center; gap: 2px; margin-bottom: 12px; }
+.splash-motto .dev { font-family: Mukta, var(--body); font-weight: 600; font-size: 1.25rem; letter-spacing: .02em; color: #FFE9A8;
+  clip-path: inset(0 100% 0 0); animation: write 1.3s steps(24, end) calc(var(--d, 0s) + .35s) forwards; }
+.splash-motto .en { font-size: .78rem; opacity: 0; font-style: italic; animation: rise .6s ease calc(var(--d, 0s) + 1.5s) forwards; }
+.splash-parts { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin: 0 0 12px; animation: rise .7s ease calc(var(--d, 0s) + .7s) both; }
+.splash-parts span { display: inline-flex; align-items: center; gap: 6px; font-size: .74rem; font-weight: 600; padding: 4px 10px; border-radius: 999px;
+  background: rgba(255,255,255,.08); color: rgba(255,255,255,.75); transition: background .3s, color .3s; }
+.splash-parts span i { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,.35); transition: background .3s; }
+.splash-parts span.busy i { background: #7FD8FA; animation: pulse 1s infinite; }
+.splash-parts span.done { background: rgba(155,240,196,.16); color: #CFFBE3; }
+.splash-parts span.done i { background: #9BF0C4; animation: none; }
+.splash-skip { position: absolute; right: 22px; bottom: 20px; z-index: 3; background: rgba(255,255,255,.1); color: #fff; border: 1px solid rgba(255,255,255,.25);
+  border-radius: 999px; padding: 7px 16px; font-weight: 600; cursor: pointer; animation: rise .5s ease 1s both; }
+.splash-skip:hover { background: rgba(255,255,255,.2); }
+/* chalkboard (first visit only) */
+.chalk { position: absolute; inset: 0; display: none; place-items: center; z-index: 4; pointer-events: none; }
+.intro-first #splash .chalk { display: grid; animation: chalk-out .5s ease 2.85s forwards; }
+.chalk-board { position: relative; width: min(360px, 84vw); padding: 22px 28px 26px; border-radius: 14px; background: #1F4D3A;
+  border: 10px solid #8B5A2B; box-shadow: inset 0 0 40px rgba(0,0,0,.45), 0 24px 60px rgba(0,0,0,.45); font-family: "Segoe Print", "Comic Sans MS", cursive;
+  color: #F4F1E6; animation: board-in .45s cubic-bezier(.2,.9,.3,1.2) both; }
+.chalk-title { font-size: 1.05rem; opacity: .9; margin-bottom: 10px; text-align: center; clip-path: inset(0 100% 0 0); animation: write .5s steps(18, end) .25s forwards; }
+.chalk-row { display: flex; justify-content: space-between; font-size: 1.35rem; line-height: 1.6; clip-path: inset(0 100% 0 0);
+  animation: write .36s steps(10, end) calc(.55s + var(--i) * .32s) forwards; }
+.chalk-row b { font-weight: 400; display: inline-block; color: #FFF7C2; }
+.chalk-row b.fly { transition: transform .7s cubic-bezier(.5,0,.7,.4), opacity .7s ease; opacity: 0; }
+.chalk-dust { position: absolute; inset: auto 12px 6px; height: 4px; border-radius: 4px; background: rgba(255,255,255,.18); filter: blur(2px); }
+@keyframes write { to { clip-path: inset(0 0 0 0); } }
+@keyframes board-in { from { transform: scale(.85) rotate(-3deg); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes chalk-out { to { opacity: 0; transform: scale(.96); } }
+@keyframes gulp { 40% { transform: scale(1.12); } }
+.intro-first #splash { --d: 2.9s; }
+.intro-first #splash .splash-school { animation-delay: calc(var(--d) + .35s); }
+.intro-first #splash .splash-title { animation-delay: calc(var(--d) + .5s); }
+.intro-first #splash .splash-bar { animation-delay: calc(var(--d) + .65s); }
+.intro-first #splash .splash-note { animation-delay: calc(var(--d) + .8s); }
+.intro-first #splash .splash-badge img { animation-delay: calc(var(--d) + .5s); }
+/* welcome card */
+.welcome { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 60; width: min(560px, calc(100vw - 32px));
+  background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow-lg); padding: 16px 18px;
+  animation: welcome-in .55s cubic-bezier(.2,.9,.3,1.15) both; }
+.welcome.out { animation: welcome-out .35s ease forwards; }
+.welcome h3 { margin: 0 0 2px; font-size: 1.15rem; }
+.welcome p { margin: 0 0 10px; color: var(--muted); font-size: .9rem; }
+.welcome .x { position: absolute; right: 10px; top: 8px; background: none; border: none; color: var(--muted); font-size: 1.1rem; cursor: pointer; }
+@keyframes welcome-in { from { opacity: 0; transform: translate(-50%, 24px) scale(.97); } to { opacity: 1; transform: translate(-50%, 0); } }
+@keyframes welcome-out { to { opacity: 0; transform: translate(-50%, 18px); } }
 .splash-badge img { width: 112px; height: 112px; animation: globe-turn 2.4s ease-in-out .5s both; }
+#splash { --d: 0s; }
 .splash-school { font-family: var(--head); font-weight: 500; letter-spacing: .14em; text-transform: uppercase; font-size: .78rem; opacity: .75;
   animation: rise .7s ease .35s both; }
 .splash-title { font-family: var(--head); font-weight: 700; font-size: 2.6rem; margin: 4px 0 18px; animation: rise .7s ease .5s both; }
@@ -500,5 +555,7 @@ table.t td.wrap { white-space: normal; min-width: 260px; }
   .card { padding: 16px; }
 }
 @media (prefers-reduced-motion: reduce) {
+  .intro-first #splash .chalk { display: none; } .intro-first #splash { --d: 0s; }
+  .splash-motto .dev { clip-path: none; } .splash-motto .en { opacity: .8; }
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; scroll-behavior: auto !important; }
 }
