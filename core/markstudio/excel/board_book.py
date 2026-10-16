@@ -37,8 +37,9 @@ class BoardNames:
 
 
 class BoardWorkbook:
-    def __init__(self, analyses, cfg, years=None, link=None, raw_texts=None, generated=None, logo=None):
+    def __init__(self, analyses, cfg, years=None, link=None, raw_texts=None, generated=None, logo=None, teachers=None):
         self.an = analyses[-1]                     # latest year is the main one
+        self.teachers = teachers
         self.analyses = analyses
         self.cfg = BoardNames(cfg, self.an["meta"].get("cls") or "")
         self.years = years
@@ -64,6 +65,8 @@ class BoardWorkbook:
             names.append("Year on Year")
         if self.link and self.link["links"]:
             names.append("School vs Boards")
+        if self.teachers and self.teachers["cards"]:
+            names.append("Teachers")
         names += ["Checks", "Gazette Text"]
         self.ws = {n: self.wb.add_worksheet(n) for n in names}
         self.results()
@@ -74,6 +77,8 @@ class BoardWorkbook:
             self.year_on_year()
         if "School vs Boards" in self.ws:
             self.school_vs_board()
+        if "Teachers" in self.ws:
+            self.teacher_sheet()
         self.checks()
         self.source()
         self.ws["Board Dashboard"].activate()
@@ -433,6 +438,60 @@ class BoardWorkbook:
         if lk["links"]:
             ws.autofilter(r, 1, r + len(lk["links"]), 8)
 
+    # -------------------------------------------------------------- teachers on the board results
+    def teacher_sheet(self):
+        ws, f, bt = self.ws["Teachers"], self.f, self.teachers
+        self._sw.banner(ws, f"Teachers - Board Results {bt['year'] or ''}".strip(),
+                        "Each student's board mark in the subject compared with the same student's other subjects.", 12)
+        ws.set_column(0, 0, 2)
+        ws.set_column(1, 1, 22)
+        ws.set_column(2, 2, 30)
+        ws.set_column(3, 10, 10)
+        ws.set_column(11, 11, 34)
+        ws.set_column(12, 12, 8)
+        ws.merge_range(3, 1, 3, 12, bt["caution"], f.cell(italic=True, font_color=theme.MUTED, text_wrap=True, valign="top"))
+        ws.set_row(3, 34)
+        r = 5
+        heads = ["Subject", "Teacher(s)", "Students", "Average", "Highest", "A1", "90+", "Grade E", "PI",
+                 "vs other subjects", "Check", "Place"]
+        for c, h in enumerate(heads, 1):
+            ws.write(r, c, h, f.header())
+        ws.set_row(r, 30)
+        cards = sorted(bt["cards"], key=lambda c: c.get("rank") or 999)
+        for i, c in enumerate(cards):
+            rr = r + 1 + i
+            band = {"bg_color": theme.TINT2} if i % 2 else {}
+            fx = c["fair"]
+            ws.write_string(rr, 1, c["subject_name"], f.cell(bold=True, **band))
+            ws.write_string(rr, 2, c["name"], f.cell(quote_prefix=formula_like(c["name"]), **band))
+            ws.write(rr, 3, c["candidates"], f.cell(align="center", **band))
+            ws.write(rr, 4, _n(c["avg"]), f.num(1, **band))
+            ws.write(rr, 5, _n(c["max"]), f.num(0, **band))
+            ws.write(rr, 6, c["a1"], f.cell(align="center", **band))
+            ws.write(rr, 7, c["above90"], f.cell(align="center", **band))
+            ws.write(rr, 8, c["grade_e"], f.cell(align="center", font_color=theme.RED if c["grade_e"] else theme.TEXT, **band))
+            ws.write(rr, 9, _n(c["pi"]), f.num(1, **band))
+            e = fx["effect"]
+            ws.write(rr, 10, _n(e), f.num(1, bold=True, font_color=(theme.GREEN if e is not None and fx["low"] > 0 else
+                                                                      theme.RED if e is not None and fx["high"] < 0 else
+                                                                      theme.TEXT), **band))
+            ws.write_string(rr, 11, fx["verdict"], f.cell(**band))
+            ws.write_string(rr, 12, f"{c['rank']} of {c['of']}" if c.get("rank") else "-", f.cell(align="center", **band))
+        r += len(cards) + 2
+        ws.write_string(r, 1, "Notes", f.cell(bold=True, font_color=theme.NAVY))
+        for c in cards:
+            r += 1
+            ws.write_string(r, 1, c["subject_name"], f.cell(bold=True))
+            ws.merge_range(r, 2, r, 12, "  ".join(c["notes"]), f.cell(text_wrap=True, valign="top"))
+            ws.set_row(r, 15 * max(2, 1 + len(" ".join(c["notes"])) // 120))
+        if bt["untaught"]:
+            r += 2
+            ws.write_string(r, 1, "No teacher added", f.cell(bold=True, font_color=theme.NAVY))
+            for u in bt["untaught"]:
+                r += 1
+                ws.write_string(r, 1, u["name"], f.cell())
+                ws.write(r, 3, u["candidates"], f.cell(align="center"))
+
     # -------------------------------------------------------------- checks + source
     def checks(self):
         ws, f, an = self.ws["Checks"], self.f, self.an
@@ -481,5 +540,5 @@ class BoardWorkbook:
         ws.protect("", {"select_locked_cells": True})
 
 
-def write_board_workbook(analyses, cfg, years=None, link=None, raw_texts=None, logo=None):
-    return BoardWorkbook(analyses, cfg, years=years, link=link, raw_texts=raw_texts, logo=logo).build()
+def write_board_workbook(analyses, cfg, years=None, link=None, raw_texts=None, logo=None, teachers=None):
+    return BoardWorkbook(analyses, cfg, years=years, link=link, raw_texts=raw_texts, logo=logo, teachers=teachers).build()

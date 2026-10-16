@@ -193,3 +193,45 @@ def test_remove_teachers_completely():
     assert t["name"] not in names
     json.loads(api.remove_all_teachers())
     assert json.loads(api.teacher_analysis())["data"]["cards"] == []
+
+
+def test_board_teachers_on_sample_gazette():
+    import io
+    import openpyxl
+    api.init()
+    assert json.loads(api.add_sample_gazette())["ok"]
+    api.set_teachers(json.dumps([{"name": "Ms. Test One", "subject": "Physics", "classes": "XII"},
+                                 {"name": "Mr. Test Two", "subject": "English", "classes": "XII-A, XII-B"},
+                                 {"name": "Ms. Test Three", "subject": "English", "classes": "XII-C"}]))
+    t = json.loads(api.board_summary())["data"]["teachers"]
+    names = {c["subject_name"]: c for c in t["cards"]}
+    # no school marks with sections, so the two English teachers are shown together
+    assert names["English"]["names"] == ["Mr. Test Two", "Ms. Test Three"] and names["English"]["note"]
+    assert names["Physics"]["fair"]["verdict"] in ("Above their other subjects", "Below their other subjects",
+                                                   "About the same as their other subjects")
+    assert "Mathematics" in [u["name"] for u in t["untaught"]]
+    d = json.loads(api.ask("which teachers are not doing well in boards"))["data"]
+    assert d["query"] == {"op": "board_teachers", "order": "low"} and d["table"]["rows"]
+    wb = openpyxl.load_workbook(io.BytesIO(api.board_workbook_bytes()))
+    assert "Teachers" in wb.sheetnames
+
+
+def test_board_teachers_on_sample_gazette():
+    import io
+    import openpyxl
+    api.init()
+    assert json.loads(api.add_sample_gazette())["ok"]
+    api.set_teachers(json.dumps([{"name": "Ms. Test One", "subject": "Physics", "classes": "XII"},
+                                 {"name": "Mr. Test Two", "subject": "English", "classes": "XII-A, XII-B"},
+                                 {"name": "Ms. Test Three", "subject": "English", "classes": "XII-C"}]))
+    t = json.loads(api.board_summary())["data"]["teachers"]
+    names = {c["subject_name"]: c for c in t["cards"]}
+    # no school marks with sections, so the two English teachers are shown together
+    assert names["English"]["names"] == ["Mr. Test Two", "Ms. Test Three"] and names["English"]["note"]
+    assert names["Physics"]["fair"]["verdict"] in ("Above their other subjects", "Below their other subjects",
+                                                   "About the same as their other subjects")
+    assert "Mathematics" in [u["name"] for u in t["untaught"]]
+    d = json.loads(api.ask("which teachers are not doing well in boards"))["data"]
+    assert d["query"] == {"op": "board_teachers", "order": "low"} and d["table"]["rows"]
+    wb = openpyxl.load_workbook(io.BytesIO(api.board_workbook_bytes()))
+    assert "Teachers" in wb.sheetnames

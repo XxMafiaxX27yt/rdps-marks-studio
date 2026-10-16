@@ -328,3 +328,118 @@ def _notes(card, cfg):
             out.append(f"{x['label']} is {_f(abs(vc))} points {'above' if vc > 0 else 'below'} the Class {x['cls']} "
                        f"{card['subject_name']} average in {x['latest']['name']}.")
     return out
+
+
+# ---------------------------------------------------------------- teachers on BOARD results
+def analyse_board(an, teachers, cfg, ds=None):
+    """Teacher cards for a CBSE gazette. The gazette has no sections, so a subject taught by two teachers is shown
+    for both together - unless school marks with Board Roll Nos say which section each student is in.
+    The check: each student's mark in the subject minus that student's average in their other subjects."""
+    gcls = an["meta"].get("cls") or "XII"
+    code_map = {k: v for k, v in cfg.rules.get("board", {}).get("school_code_map", {}).items() if not k.startswith("_")}
+    section_of = {}
+    if ds is not None:
+        for st in ds.students.values():
+            if st.board_roll and st.cls == gcls:
+                section_of[st.board_roll] = st.section
+    def school_code(c):
+        if gcls == "X" and c == "241":
+            return "041"                     # Class X Maths Basic is taught as the school's Maths
+        return code_map.get(c, c)
+    cards, untaught = [], []
+    lowp = Decimal(str(cfg.rules.get("low_percent", 50)))
+    for s in an["subjects"]:
+        code = s["code"]
+        sc = school_code(code)
+        teach = [t for t in teachers if t["subject"] == sc and any(c == gcls for c, _ in t["pairs"])]
+        rows = []
+        for r in an["rows"]:
+            x = next((y for y in r["s"].subjects if y["code"] == code and y["marks"] is not None), None)
+            if x is None:
+                continue
+            others = [y["marks"] for y in r["s"].subjects if y["code"] != code and y["marks"] is not None]
+            rows.append({"s": r["s"], "mark": x["marks"], "grade": x["grade"],
+                         "other": Decimal(sum(others)) / len(others) if others else None})
+        if not teach:
+            untaught.append({"code": code, "name": s["name"], "candidates": s["candidates"]})
+            continue
+        # who taught whom: by section when the school marks tell us, otherwise all together
+        groups = []
+        by_sec = all(any(sec for _, sec in t["pairs"]) for t in teach) and section_of
+        if by_sec:
+            for t in teach:
+                secs = {sec for c, sec in t["pairs"] if c == gcls}
+                mine = [x for x in rows if section_of.get(x["s"].roll) in secs]
+                if mine:
+                    groups.append(([t], mine, ""))
+            covered = {id(x) for g in groups for x in g[1]}
+            rest = [x for x in rows if id(x) not in covered]
+            if rest:
+                groups.append((teach, rest, "Students whose section is not known (no Board Roll No in the school marks)."))
+        else:
+            note = "" if len(teach) == 1 else ("The gazette does not say which section each student was in, so these "
+                                               "teachers are shown together. Upload the school marks with Board Roll Nos "
+                                               "and sections to see each teacher separately.")
+            groups.append((teach, rows, note))
+        for tl, rs, note in groups:
+            marks = [Decimal(x["mark"]) for x in rs]
+            n = len(rs)
+            grades = {}
+            for x in rs:
+                if x["grade"]:
+                    grades[x["grade"]] = grades.get(x["grade"], 0) + 1
+            weights = cfg.rules["board"]["pi_weights"]
+            graded = sum(grades.values())
+            pi = (Decimal(sum(weights.get(g, 0) * k for g, k in grades.items())) * 100 / (Decimal(8) * graded)) if graded else None
+            diffs = [float(Decimal(x["mark"]) - x["other"]) for x in rs if x["other"] is not None and x["other"] >= STRUGGLING]
+            left_out = sum(1 for x in rs if x["other"] is not None and x["other"] < STRUGGLING)
+            fx = {"n": len(diffs), "left_out": left_out, "effect": None, "low": None, "high": None, "verdict": "Not enough data"}
+            if len(diffs) >= MIN_STUDENTS:
+                m = sum(diffs) / len(diffs)
+                sd = (sum((v - m) ** 2 for v in diffs) / (len(diffs) - 1)) ** 0.5
+                se = sd / len(diffs) ** 0.5
+                lo, hi = m - 1.96 * se, m + 1.96 * se
+                fx.update(effect=Decimal(str(round(m, 4))), low=Decimal(str(round(lo, 4))), high=Decimal(str(round(hi, 4))),
+                          verdict="Above their other subjects" if lo > 0 else ("Below their other subjects" if hi < 0 else
+                                                                               "About the same as their other subjects"))
+            weak = sorted((x for x in rs if x["other"] is not None and x["other"] >= STRUGGLING), key=lambda x: x["other"])
+            third = weak[:max(1, len(weak) // 3)] if len(weak) >= 6 else []
+            fx["weakest_third"] = _mean([Decimal(x["mark"]) - x["other"] for x in third]) if third else None
+            card = {"names": [t["name"] for t in tl], "name": " / ".join(t["name"] for t in tl), "subject": code,
+                    "subject_name": s["name"], "candidates": n, "avg": sum(marks, Decimal(0)) / n if n else None,
+                    "max": max(marks) if marks else None, "min": min(marks) if marks else None,
+                    "a1": grades.get("A1", 0), "above90": sum(1 for v in marks if v >= 90),
+                    "grade_e": grades.get("E", 0), "below_low": sum(1 for v in marks if v < lowp), "pi": pi,
+                    "grades": grades, "fair": fx, "note": note}
+            card["notes"] = _board_notes(card)
+            cards.append(card)
+    # where each subject stands among all the school's subjects (same students, other subjects)
+    ranked = sorted((c for c in cards if c["fair"]["effect"] is not None), key=lambda c: -c["fair"]["effect"])
+    for i, c in enumerate(ranked):
+        c["rank"] = i + 1
+        c["of"] = len(ranked)
+    return {"cards": cards, "untaught": untaught, "cls": gcls, "year": an["meta"].get("year"),
+            "caution": "Board papers differ in difficulty from subject to subject, and here one teacher (or pair) taught the "
+                       "whole subject, so this shows the paper and the teaching together. Use it to start a conversation, "
+                       "not to decide."}
+
+
+def _board_notes(c):
+    out = []
+    fx = c["fair"]
+    out.append(f"{c['candidates']} students; average {_f(c['avg'])}, highest {_f(c['max'])}; {c['a1']} A1, "
+               f"{c['above90']} scored 90+; PI {_f(c['pi'])}.")
+    if c["grade_e"]:
+        out.append(f"{c['grade_e']} student{'s' if c['grade_e'] != 1 else ''} got grade E (compartment) in {c['subject_name']}.")
+    if fx["effect"] is not None:
+        e = fx["effect"]
+        out.append(f"Compared with the same students' other subjects: {_f(abs(e))} marks {'above' if e >= 0 else 'below'} "
+                   f"(likely range {_f(fx['low'])} to {_f(fx['high'])}) - {fx['verdict'].lower()}.")
+        if fx.get("weakest_third") is not None:
+            w = fx["weakest_third"]
+            out.append(f"Weakest third of the students: {_f(abs(w))} marks {'above' if w >= 0 else 'below'} their other subjects.")
+        if fx["left_out"]:
+            out.append(f"{fx['left_out']} student{'s' if fx['left_out'] != 1 else ''} low in every subject left out of this check.")
+    if c["note"]:
+        out.append(c["note"])
+    return out

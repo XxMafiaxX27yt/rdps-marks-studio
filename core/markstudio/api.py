@@ -531,7 +531,10 @@ def board_summary():
         out.append(d)
     years = board.compare_years(S.boards) if len({a["meta"]["year"] for a in S.boards}) > 1 else None
     link = board.school_vs_board(S.boards[-1], S.ds, S.res, S.cfg) if S.res else None
-    return {"boards": out, "years": years, "link": {k: v for k, v in link.items() if k != "links"} if link else None}
+    from .teachers import analyse_board
+    bt = analyse_board(S.boards[-1], all_teachers(), S.cfg, S.ds)
+    return {"boards": out, "years": years, "link": {k: v for k, v in link.items() if k != "links"} if link else None,
+            "teachers": bt}
 
 
 def board_workbook_bytes():
@@ -543,7 +546,9 @@ def board_workbook_bytes():
     texts = []
     for src_g in S.project.gazettes:
         texts.append((src_g.file, getattr(src_g, "raw_text", "")))
-    return write_board_workbook(an, S.cfg, years=years, link=link, raw_texts=texts)
+    from .teachers import analyse_board
+    return write_board_workbook(an, S.cfg, years=years, link=link, raw_texts=texts,
+                                teachers=analyse_board(an[-1], all_teachers(), S.cfg, S.ds))
 
 
 def board_workbook_name():
@@ -560,7 +565,7 @@ def ask(question, hints_json="", force_json=""):
     parsed = U.parse(question, hints, force)
     if "query" not in parsed:
         return parsed
-    E = Engine(S.ds, S.res, S.boards, teachers=all_teachers())
+    E = Engine(S.ds, S.res, S.boards, teachers=all_teachers(), cfg=S.cfg)
     try:
         ans = E.run(parsed["query"])
     except QueryError as ex:
@@ -573,7 +578,7 @@ def ask(question, hints_json="", force_json=""):
 
 @safe
 def run_query(query_json):
-    return Engine(S.ds, S.res, S.boards, teachers=all_teachers()).run(json.loads(query_json))
+    return Engine(S.ds, S.res, S.boards, teachers=all_teachers(), cfg=S.cfg).run(json.loads(query_json))
 
 
 @safe

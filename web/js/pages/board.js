@@ -2,6 +2,7 @@
 import * as engine from "../engine.js";
 import { S } from "../state.js";
 import { $, esc, fmt, toast, chart, countUp, download, XLSX, table, cssVar, PALETTE } from "../ui.js";
+import { qmark } from "../explain.js";
 
 const rerender = () => window.__render();
 let busy = false;
@@ -48,8 +49,37 @@ function body(b) {
       ${b.years ? `<div class="card span2"><h3>Year on year</h3>${table(["Year", "Pass %", "Avg best 5 %", "School PI", "Candidates"], b.years.summary.map((y) => [y[0], y[1], y[2], y[3], y[4]]), { numeric: [1, 2, 3, 4] })}</div>` : ""}
       ${b.link ? `<div class="card span2"><h3>School tests vs Boards</h3><p class="muted small">${b.link.linked_students} students linked by Board Roll No${b.link.by_name ? ` (${b.link.by_name} by name - please check)` : ""}. Gap = board marks − school %.</p>
         ${table(["Subject", "Students", "Average gap (points)"], b.link.by_subject.map((x) => [x.name, x.n, x.avg_gap]), { numeric: [1, 2] })}</div>` : ""}
+      ${teachersCard(b.teachers)}
       <div class="card span2"><h3>Checks</h3>${a.issues.length ? table(["Type", "Details"], a.issues.map((i) => [i.severity, i.message]), { wrap: [1] }) : `<p class="muted">Nothing to report.</p>`}</div>
     </div>`;
+}
+
+function teachersCard(t) {
+  if (!t) return "";
+  if (!t.cards.length) {
+    return `<div class="card span2"><h3>Teachers ${qmark("teachers")}</h3><p class="muted">Add teachers (name, subject, class ${esc(t.cls)}) on the
+      <a href="#/teachers">Teachers page</a> to see how each subject did against the same students' other subjects.</p></div>`;
+  }
+  const badge = (v) => {
+    const cls = { "Above their other subjects": "b-strong", "Below their other subjects": "b-weak", "About the same as their other subjects": "b-track" }[v] || "b-leave";
+    return `<span class="badge ${cls}">${esc(v)}</span>`;
+  };
+  const signed = (v) => {
+    if (v === null || v === undefined) return "–";
+    const col = v > 0.05 ? "var(--green)" : v < -0.05 ? "var(--red)" : "inherit";
+    return `<b style="color:${col}">${v > 0 ? "+" : ""}${fmt(v)}</b>`;
+  };
+  const cards = [...t.cards].sort((a, b) => (a.rank || 999) - (b.rank || 999));
+  const rows = cards.map((c) => [c.subject_name, c.name, c.candidates, c.avg, c.a1, c.grade_e,
+    { html: signed(c.fair.effect) + (c.fair.low !== null ? ` <span class="muted small">(${fmt(c.fair.low)} to ${fmt(c.fair.high)})</span>` : "") },
+    { html: badge(c.fair.verdict) }, c.rank ? `${c.rank} of ${c.of}` : "–"]);
+  const notes = cards.map((c) => `<div class="card"><h3>${esc(c.subject_name)} <span class="muted small">· ${esc(c.name)}</span></h3>
+      <ul class="small" style="margin:6px 0 0;padding-left:18px">${c.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></div>`).join("");
+  return `<div class="card span2"><h3>Teachers on the board results ${qmark("teachers")}</h3>
+      <div class="note" style="margin:6px 0 12px">⚖️ ${esc(t.caution)}</div>
+      ${table(["Subject", "Teacher(s)", "Students", "Average", "A1", "Grade E", "vs other subjects (marks)", "Check", "Place"], rows, { numeric: [2, 3, 4, 5] })}
+      ${t.untaught.length ? `<p class="muted small" style="margin-top:10px">No teacher added for: ${t.untaught.map((u) => `${esc(u.name)} (${u.candidates})`).join(", ")}.</p>` : ""}
+      <div class="grid g2" style="margin-top:14px">${notes}</div></div>`;
 }
 
 async function addFiles(files) {

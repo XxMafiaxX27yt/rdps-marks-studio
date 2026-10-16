@@ -346,6 +346,9 @@ class Understander:
         if _has(low, kw["help"]) and len(low.split()) <= 6 and not _has(low, ATTENTION) and not (
                 e["classes"] or e["subjects"] or has_student):
             return "help", "keyword"
+        if self.boards and (e["teachers"] or _has(low, ["teacher", "teachers", "faculty"])) and \
+                (not self.ds or _has(low, kw["board"])):
+            return "teacher", "keyword"
         if self.boards and (_has(low, kw["board"]) or (e["board_rolls"] and not self.ds)):
             return "board", "keyword"
         if e["teachers"] or _has(low, ["teacher", "teachers", "teacher wise", "teacherwise", "faculty", "teaching",
@@ -492,6 +495,17 @@ class Understander:
             q["n"] = 1
         if e["by"] and intent in ("average", "pass_rate", "count"):
             q["by"] = e["by"]
+        if intent == "teacher" and self.boards and (not self.ds or _has(e["low"], self.kw["board"])):
+            q = {"op": "board_teachers"}
+            if e["subjects"]:
+                q["subject"] = e["subjects"][0]
+            if _has(e["low"], ["not doing well", "not working", "not good", "worst", "weak", "poor", "bad", "lowest", "low",
+                               "kharab", "kamzor", "below"]):
+                q["order"] = "low"
+            elif _has(e["low"], ["best", "good", "top", "strong", "highest", "doing well", "excellent", "achha"]):
+                q["order"] = "high"
+            return {"query": q, "matched_by": how, "understood": "Understood as: teachers on the board results"
+                    + (" (lowest first)" if q.get("order") == "low" else " (best first)" if q.get("order") == "high" else "")}
         if intent == "teacher":
             q["teachers"] = e["teachers"]
             if _has(e["low"], ["not doing well", "not working", "not good", "not performing", "worst", "weak", "poor",
