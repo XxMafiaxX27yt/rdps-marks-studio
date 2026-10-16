@@ -333,3 +333,28 @@ def test_total_percentage_grade_result_columns_are_understood():
     roles = {c["header"]: c["role"] for c in st["files"][0]["sheets"][0]["columns"]}
     assert roles["Total"] == "file_total" and roles["Perc%"] == "file_percent"
     assert roles["Grd"] == "file_grade" and roles["Result"] == "file_result"
+
+
+def test_any_file_is_sorted_by_itself():
+    from markstudio.sample import sample_files, sample_board_table, sample_class_lists, sample_gazette
+    api.init()
+    cfg = api.S.cfg
+    kinds = [json.loads(api.add_any(n, d))["data"]["kind"] for n, d in sample_files(cfg)]
+    assert kinds == ["school"] * 5
+    n, t = sample_board_table(cfg)
+    i = json.loads(api.add_any(n, t.encode()))["data"]
+    assert (i["kind"], i["cls"], i["what"]) == ("board", "XII", "table")
+    i = json.loads(api.add_any("gazette.txt", sample_gazette(cfg).encode()))["data"]
+    assert (i["kind"], i["cls"], i["what"]) == ("board", "XII", "cbse")
+    n, d = sample_class_lists(cfg)[0]
+    i = json.loads(api.add_any(n, d))["data"]
+    assert i["kind"] == "class_list" and i["lists"][0]["section"] == "A"
+    # a plain marks table with no exam and no 'board' in it: the tool asks (or follows the page it was dropped on)
+    plain = b"Roll,Name,English,Physics,Chemistry,Maths,CS\n1,Asha Rao,80,70,75,66,90\n"
+    assert json.loads(api.add_any("Class 12 A.csv", plain))["data"]["kind"] == "ask"
+    assert json.loads(api.add_any("Class 12 A.csv", plain, "", "board"))["data"]["kind"] == "board"
+    i = json.loads(api.add_any("Class 10 B.csv", b"Roll,Name,English,Maths,Science\n1,Om Das,80,70,75\n", "board_X"))["data"]
+    assert (i["kind"], i["cls"]) == ("board", "X")
+    assert json.loads(api.add_any("Class 6 Half Yearly.csv", b"Roll,Name,English,Maths\n1,Om Das,60,70\n"))["data"]["kind"] == "school"
+    st = json.loads(api.state())["data"]
+    assert len(st["gazettes"]) == 4 and len(st["class_lists"]) == 1

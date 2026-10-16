@@ -4,7 +4,7 @@ import * as engine from "../engine.js";
 import { S, LS } from "../state.js";
 import { $, $$, esc, fmt, toast, chart, cssVar, table } from "../ui.js";
 import { qmark } from "../explain.js";
-import { readPdf } from "../files.js";
+import { addAny } from "../intake.js";
 
 const rerender = () => window.__render();
 let analysis = null;       // school-exam teacher analysis
@@ -318,14 +318,8 @@ async function addClassLists(files) {
   for (const f of files) {
     busy = `Reading ${f.name}…`; rerender();
     try {
-      if (/\.pdf$/i.test(f.name)) {
-        const pages = await readPdf(f);
-        S.classLists = await engine.call("add_class_list_pages", f.name, JSON.stringify(pages));
-      } else {
-        S.classLists = await engine.call("add_class_list", f.name, new Uint8Array(await f.arrayBuffer()));
-      }
-      const l = S.classLists[S.classLists.length - 1];
-      toast(l.needs ? `${esc(f.name)}: ${l.count} students - please type which class and section it is.` : `${esc(f.name)}: ${l.count} students in ${esc(l.sections.join(", "))} ✓`, l.needs ? "warn" : "ok", 6000);
+      await addAny(f, { hint: "class_list" });           // a board file or school marks dropped here go to their place
+      S.classLists = await engine.call("class_lists");
     } catch (e) { toast(esc(e.message), "err", 9000); }
   }
   busy = "";

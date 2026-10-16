@@ -175,6 +175,37 @@ def add_sample(mistakes=False):
 
 
 @safe
+def add_any(name, data, prefer="", hint=""):
+    """Any file from any page: sorted into board results (XII / X), a class list or school marks."""
+    data = bytes(data)
+    if data[:2] == b"PK" and name.lower().endswith((".xlsx", ".xlsm")) and not prefer:
+        try:
+            import io
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True)
+            if snapshot.is_ours(wb.sheetnames):
+                return {"kind": "our_workbook", "name": name}
+        except Exception:
+            pass
+    return _after_any(S.project.add_any(name, data, prefer, hint))
+
+
+@safe
+def add_any_pages(name, pages_json, prefer="", hint=""):
+    return _after_any(S.project.add_any_pages(name, json.loads(pages_json), prefer, hint))
+
+
+def _after_any(info):
+    if info["kind"] == "board":
+        _refresh_boards()
+    elif info["kind"] == "school":
+        _leave_restored()
+    if info["kind"] == "class_list":
+        info["class_lists"] = _class_lists_out()
+    return info
+
+
+@safe
 def add_board_file(name, data):
     """From the Board page: CBSE's gazette or the school's own board-results table."""
     info = S.project.add_board_file(name, bytes(data))
@@ -285,9 +316,13 @@ def state_dict():
             })
         files.append({"id": src.id, "name": src.name, "kind": src.kind, "sheets": sheets})
     gz = [{"id": f"G{i}", "name": g.file, "year": g.year, "cls": g.cls, "students": len(g.students),
-           "school": g.school_name, "errors": sum(1 for x in g.issues if x.severity == "error")}
+           "school": g.school_name, "errors": sum(1 for x in g.issues if x.severity == "error"),
+           "what": getattr(g, "kind", "gazette")}
           for i, g in enumerate(p.gazettes)]
-    return {"files": files, "gazettes": gz, "pending": p.pending(), "corrections": p.corrections,
+    cls_lists = [{"id": c["id"], "name": c["file"], "count": len(c["students"]), "needs": c["needs"],
+                  "sections": sorted({f"{s['cls']}-{s['section']}" if s["section"] else s["cls"] for s in c["students"]
+                                      if s["cls"]})} for c in p.class_lists]
+    return {"files": files, "gazettes": gz, "class_lists": cls_lists, "pending": p.pending(), "corrections": p.corrections,
             "restored": S.restored, "has_results": S.res is not None}
 
 

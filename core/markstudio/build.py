@@ -99,6 +99,87 @@ class Project:
         self.gazettes.append(g)
         return {"kind": "gazette", "table": True, "name": name, "students": len(g.students), "year": g.year, "cls": g.cls}
 
+    # ------------------------------------------------------------ any file: work out what it is
+    KINDS = ("school", "board", "board_XII", "board_X", "class_list")
+
+    def add_any(self, name, data, prefer="", hint=""):
+        """Any file, from any page. It is sorted into: board results (Class XII or X - CBSE's own file or the
+        school's own list), a class list (names + sections, no marks) or school exam marks.
+        prefer = the teacher's answer when the tool asked; hint = the page the file was dropped on (used only
+        when the file itself could be either)."""
+        sheets = readers.read_file(name, data)
+        text = sheets[0].text if len(sheets) == 1 and getattr(sheets[0], "text", None) else ""
+        return self._add_any(name, sheets, text, prefer, hint)
+
+    def add_any_pages(self, name, pages, prefer="", hint=""):
+        sheets, text = readers.read_pages(name, pages)
+        info = self._add_any(name, sheets, text, prefer, hint, ocr=any(getattr(s, "ocr", False) for s in sheets))
+        return info
+
+    def _add_any(self, name, sheets, text, prefer, hint, ocr=False):
+        if text and gazette.looks_like_gazette(text):
+            g = gazette.parse(text, name)
+            g.raw_text = text
+            self.gazettes.append(g)
+            return {"kind": "board", "what": "cbse", "name": name, "students": len(g.students), "year": g.year,
+                    "cls": g.cls}
+        kind = prefer or self.classify(name, sheets)
+        if kind == "ask":
+            kind = hint if hint in self.KINDS else "ask"
+        if kind == "ask":
+            return {"kind": "ask", "name": name,
+                    "why": "This file has students and marks of each subject, but it does not say whether they are school "
+                           "exam marks or board results."}
+        if kind.startswith("board"):
+            info = self._board_table(name, sheets)
+            if not info:
+                raise ValueError(f"{name}: no row of headings with the students' names and subjects was found, so it "
+                                 f"could not be read as board results.")
+            if kind in ("board_XII", "board_X"):
+                g = self.gazettes[-1]
+                g.cls = kind.split("_")[1]
+                g.issues = [i for i in g.issues if i.code != "board_class_guess"]
+                info["cls"] = g.cls
+            info["kind"], info["what"] = "board", "table"
+            return info
+        if kind == "class_list":
+            found = self._class_lists(name, sheets)
+            return {"kind": "class_list", "name": name, "lists": [{"cls": c["cls"], "section": c["section"],
+                    "count": len(c["students"]), "needs": c["needs"]} for c in found]}
+        info = self._add_table(name, sheets, ocr=ocr)
+        info["kind"] = "school"
+        return info
+
+    def classify(self, name, sheets):
+        """-> 'board' / 'class_list' / 'school' / 'ask' (could be school marks or board results)."""
+        if boardtable.looks_like_board(name, sheets):
+            return "board"
+        lays = []
+        for sh in sheets:
+            if norm(sh.name) in TEACHER_SHEETS or norm(sh.name) in INFO_SHEETS or not sh.rows:
+                continue
+            lays.append((sh, detect(sh, name, self.cfg, self.vocab)))
+        if not lays:
+            return "school"
+        marks = [(sh, lay) for sh, lay in lays if any(c["role"] == "mark" for c in lay["columns"])]
+        named = [(sh, lay) for sh, lay in lays if any(c["role"] == "name" for c in lay["columns"])]
+        if not marks:
+            if not named:
+                return "school"
+            rich = {"gender", "lang_choice", "lang_slot", "choice", "group", "father", "mother"}
+            if any(c["role"] in rich for _, lay in named for c in lay["columns"]):
+                return "school"            # a full student list (gender, language, subjects) belongs with the marks
+            return "class_list"
+        # school signs: an exam named anywhere, several marks sheets, internal / practical parts
+        if len(marks) > 1 or any(lay.get("exam") or any(c.get("exam") for c in lay["columns"]) for _, lay in marks):
+            return "school"
+        if any(c["role"] == "mark" and c.get("component") not in (None, "theory", "total")
+               for _, lay in marks for c in lay["columns"]):
+            return "school"
+        if boardtable.parse(name, sheets, self.cfg, self.vocab) is None:
+            return "school"
+        return "ask"
+
     # ------------------------------------------------------------ class lists
     def add_class_list(self, name, data):
         return self._class_lists(name, readers.read_file(name, data))
