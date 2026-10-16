@@ -619,3 +619,6 @@ table.t td.wrap { white-space: normal; min-width: 260px; }
 .rd-more summary { cursor: pointer; color: var(--blue-2); font-size: .86rem; font-weight: 600; }
 .rd-more[open] summary { margin-bottom: 10px; }
 .rd-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; border-radius: 10px; border: 1px dashed var(--line-2); }
+.ask-kind .btn { justify-content: flex-start; text-align: left; width: 100%; gap: 8px; padding: 12px 14px; }
+.ask-kind .btn:hover { border-color: var(--blue); background: var(--tint-2); }
+.ask-kind .btn.likely { border-color: var(--blue); }

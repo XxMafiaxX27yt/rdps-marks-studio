@@ -3,7 +3,7 @@ import * as engine from "../engine.js";
 import { S } from "../state.js";
 import { $, esc, fmt, toast, chart, countUp, download, XLSX, table, cssVar, PALETTE } from "../ui.js";
 import { qmark } from "../explain.js";
-import { readPdf } from "../files.js";
+import { addAny } from "../intake.js";
 
 const rerender = () => window.__render();
 let busy = false;
@@ -16,10 +16,10 @@ export function html() {
       <p>Add the board results: the result file CBSE sends the school (.TXT), or your own list of board marks (Excel, CSV, TXT or PDF - one row per student with the marks of each subject). Marks are shown exactly as in the file.</p></div>
       ${b ? `<button class="btn btn-primary btn-lg" id="b-dl">Download board workbook</button>` : ""}</div>
     <label class="drop" id="bdrop" style="padding:${b ? "18px" : "38px"} 20px">
-      <input type="file" id="b-in" multiple accept=".txt,.TXT,.pdf,.xlsx,.xlsm,.xls,.csv">
+      <input type="file" id="b-in" multiple accept=".txt,.TXT,.pdf,.xlsx,.xlsm,.xls,.csv,.png,.jpg,.jpeg,.webp">
       ${b ? `<div class="row" style="justify-content:center"><b>Add another year's board results</b><span class="muted small">to compare years</span></div>` :
       `<div class="drop-icon"><svg viewBox="0 0 24 24"><path d="M12 3l9 4-9 4-9-4 9-4zm-6 6v5c0 2 3 4 6 4s6-2 6-4V9"/></svg></div>
-       <h3>Drop the board results here</h3><div class="muted">CBSE's “12345.TXT” or your own marks list · several years can be added</div>`}
+       <h3>Drop the board results here</h3><div class="muted">CBSE's “12345.TXT” or your own marks list · Class XII or X is found by itself · several years can be added</div>`}
     </label>
     ${b ? "" : `<div class="row" style="justify-content:center;margin-top:12px"><button class="btn btn-soft" id="b-sample">Try made-up board results</button></div>`}
     ${busy ? `<div class="card" style="margin-top:14px"><span class="spinner" style="color:var(--blue)"></span> Reading the board results…</div>` : ""}
@@ -77,10 +77,7 @@ async function addFiles(files) {
   busy = true; rerender();
   for (const f of files) {
     try {
-      let info;
-      if (/\.pdf$/i.test(f.name)) info = await engine.call("add_board_pages", f.name, JSON.stringify(await readPdf(f)));
-      else info = await engine.call("add_board_file", f.name, new Uint8Array(await f.arrayBuffer()));
-      toast(info.table ? `Read ${info.students} students from ${esc(f.name)} (Class ${esc(info.cls)}).` : `Read ${info.students} candidates (${info.year}).`, "ok");
+      await addAny(f, { hint: "board" });
     } catch (e) { toast(`Could not read ${esc(f.name)}: ${esc(e.message)}`, "err", 8000); }
   }
   S.files = null;

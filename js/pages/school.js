@@ -4,6 +4,7 @@ import { S, LS, prefs, savePrefs } from "../state.js";
 import { $, $$, esc, fmt, fmtMark, toast, modal, chart, countUp, download, XLSX, XLSM, successTick, labelBadge,
          sevBadge, pctCell, table, PALETTE, LABEL_COLORS, cssVar } from "../ui.js";
 import { readPdf, readImage } from "../files.js";
+import { addAny } from "../intake.js";
 import * as ai from "../ai.js";
 import { printCards } from "../report.js";
 import { qmark } from "../explain.js";
@@ -55,20 +56,28 @@ function upload() {
     <div class="file-row"><span class="ficon">${esc(ext(x.name))}</span>
       <div style="flex:1;min-width:0"><div class="fname">${esc(x.name)}</div>
       <div class="tiny muted">${x.sheets.length} sheet${x.sheets.length !== 1 ? "s" : ""}${x.kind === "scan" ? " · read from a scan - please check carefully" : ""}</div></div>
+      <span class="badge b-ok">School marks</span>
       <button class="btn btn-ghost btn-sm" data-remove="${x.id}">Remove</button></div>`).join("");
   const gz = f.gazettes.map((g) => `
-    <div class="file-row"><span class="ficon">CBSE</span>
+    <div class="file-row"><span class="ficon">BOARD</span>
       <div style="flex:1;min-width:0"><div class="fname">${esc(g.name)}</div>
-      <div class="tiny muted">Board results ${esc(g.year)} · ${g.students} students → shown under <a href="#/board">Board results</a></div></div>
-      <button class="btn btn-ghost btn-sm" data-remove="${g.id}">Remove</button></div>`).join("");
+      <div class="tiny muted">${g.what === "table" ? "" : "CBSE's file · "}${g.students} students → <a href="#/board">Board results</a></div></div>
+      <span class="badge b-track">Board results · Class ${esc(g.cls || "?")}</span>
+      <button class="btn btn-ghost btn-sm" data-remove="${g.id}">Remove</button></div>`).join("") +
+    (f.class_lists || []).map((l) => `
+    <div class="file-row"><span class="ficon">LIST</span>
+      <div style="flex:1;min-width:0"><div class="fname">${esc(l.name)}</div>
+      <div class="tiny muted">${l.count} students → <a href="#/teachers">Teachers · Class lists</a></div></div>
+      <span class="badge ${l.needs ? "b-weak" : "b-strong"}">Class list${l.sections.length ? " · " + esc(l.sections.join(", ")) : " · which class?"}</span>
+      <button class="btn btn-ghost btn-sm" data-cldel="${l.id}">Remove</button></div>`).join("");
   return `
   <div class="grid g3">
     <div class="span2 stack">
       <label class="drop" id="drop">
         <input type="file" id="file-in" multiple accept=".xlsx,.xlsm,.xls,.csv,.txt,.tsv,.pdf,.png,.jpg,.jpeg,.webp">
         <div class="drop-icon"><svg viewBox="0 0 24 24"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg></div>
-        <h3>Drop marks files here ${qmark("upload")}</h3>
-        <div class="muted">or click to choose · you can add several files (one per exam, one per class…)</div>
+        <h3>Drop any files here ${qmark("upload")}</h3>
+        <div class="muted">school marks, board results (CBSE's file or your own list) or class lists - the tool sorts them by itself</div>
         <div class="formats"><span>EXCEL</span><span>XLS</span><span>CSV</span><span>CBSE TXT</span><span>PDF</span><span>SCAN / PHOTO</span></div>
       </label>
       ${busy ? `<div class="card"><div class="row"><span class="spinner" style="color:var(--blue)"></span><b>${esc(busy)}</b></div><div class="progress" style="margin-top:10px"><i id="busy-bar" style="width:5%"></i></div></div>` : ""}
@@ -111,30 +120,14 @@ async function addFiles(fileList) {
     rerender();
     const bar = (p) => { const b = $("#busy-bar"); if (b) b.style.width = Math.round(5 + p * 95) + "%"; };
     try {
-      const low = file.name.toLowerCase();
-      let info;
-      if (low.endsWith(".pdf")) {
-        const pages = await readPdf(file, bar);
-        info = await engine.call("add_pages", file.name, JSON.stringify(pages));
-        if (pages.some((p) => p.ocr)) toast(`${esc(file.name)} was read from a scan. Please check every column and a few marks carefully.`, "warn", 7000);
-      } else if (/\.(png|jpe?g|webp)$/.test(low)) {
-        const pages = await readImage(file, bar);
-        info = await engine.call("add_pages", file.name, JSON.stringify(pages));
-        toast("Photo read with offline text recognition. Printed sheets work best - please check carefully.", "warn", 7000);
-      } else {
-        const data = new Uint8Array(await file.arrayBuffer());
-        info = await engine.call("add_file", file.name, data);
-        if (info.kind === "our_workbook") {
-          busy = null;
-          const ok = await confirmModal("This is a workbook made by RDPS Marks Studio",
-            "Open it to continue where you left off? Marks corrected in Excel will be picked up. (Files added so far will be cleared.)", "Open it");
-          if (ok) await openWorkbook(file);
-          continue;
-        }
+      const info = await addAny(file, { hint: "school", onProgress: bar });
+      if (info && info.kind === "our_workbook") {
+        busy = null;
+        const ok = await confirmModal("This is a workbook made by RDPS Marks Studio",
+          "Open it to continue where you left off? Marks corrected in Excel will be picked up. (Files added so far will be cleared.)", "Open it");
+        if (ok) await openWorkbook(file);
+        continue;
       }
-      if (info.kind === "gazette" && info.table) { S.board = null; toast(`${esc(file.name)} looks like <b>board results</b> (${info.students} students) - it was added to the <a href="#/board">Board results</a> page.`, "ok", 8000); }
-      else if (info.kind === "gazette") toast(`CBSE board results found (${info.students} students, ${info.year}). See <a href="#/board">Board results</a>.`, "ok", 6000);
-      else toast(`Added ${esc(file.name)}`, "ok", 2200);
     } catch (e) {
       toast(`Could not read ${esc(file.name)}: ${esc(e.message)}`, "err", 9000);
     }
@@ -707,6 +700,7 @@ async function onClick(e) {
       rerender(); return;
     }
     if (d.remove) { S.files = await engine.call("remove_file", d.remove); S.summary = null; rerender(); return; }
+    if (d.cldel) { S.classLists = await engine.call("remove_class_list", d.cldel); await refreshState(); rerender(); return; }
     if (t.id === "compare") return compareModal();
     if (d.confirm) { const [src, sheet] = splitKey(d.confirm); S.files = await engine.call("confirm_sheet", src, sheet); LS.set("rdps.remembered", await engine.call("remember_json")); toast("Confirmed ✓ - remembered for next time", "ok", 2000); rerender(); return; }
     if (t.id === "analyze") return analyze();
