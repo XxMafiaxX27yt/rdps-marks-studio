@@ -13,9 +13,9 @@
  },
  "check": {
   "file": "check.mp4",
-  "dur": 24.23,
-  "fp": "90a39f604e",
-  "size": 393410
+  "dur": 42.97,
+  "fp": "ee243f436b",
+  "size": 674320
  },
  "classes": {
   "file": "classes.mp4",
@@ -97,15 +97,15 @@
  },
  "teachers": {
   "file": "teachers.mp4",
-  "dur": 56.61,
-  "fp": "b808a20289",
-  "size": 863930
+  "dur": 68.8,
+  "fp": "37f6616409",
+  "size": 1059696
  },
  "teacher-compare": {
   "file": "teacher-compare.mp4",
-  "dur": 23.57,
-  "fp": "6ac3d16033",
-  "size": 410527
+  "dur": 23.92,
+  "fp": "58e30105d3",
+  "size": 417612
  },
  "ask": {
   "file": "ask.mp4",
@@ -136,5 +136,11 @@
   "dur": 16.51,
   "fp": "447f02a965",
   "size": 244535
+ },
+ "class-lists": {
+  "file": "class-lists.mp4",
+  "dur": 32.73,
+  "fp": "70287e6a04",
+  "size": 527415
  }
 }

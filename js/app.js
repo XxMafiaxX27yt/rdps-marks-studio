@@ -147,7 +147,7 @@ engine.on("progress", (m) => {
 fetch("assets/voice/manifest.json").then((r) => { if (r.ok) part("voice", 1); }).catch(() => part("voice", 1));
 engine.on("fatal", (m) => {
   chip.className = "engine-chip error";
-  chip.querySelector("span").textContent = "Engine error";
+  chip.querySelector("span").textContent = "Could not start";
   const note = $("#splash-note");
   if (note) note.textContent = "Could not start: " + m.error;
   toast("The engine could not start in this browser. Please use a recent Chrome or Edge.<br><small>" + m.error + "</small>", "err", 12000);
@@ -172,7 +172,7 @@ async function boot() {
   S.version = info.version;
   chip.className = "engine-chip ready";
   chip.querySelector("span").textContent = "Ready · offline";
-  chip.title = `Engine ready in ${(info.ms / 1000).toFixed(1)} s. Everything now works without internet.`;
+  chip.title = `Ready in ${(info.ms / 1000).toFixed(1)} s. Everything now works without internet.`;
   $("#foot-version").textContent = "Version " + info.version;
   const saved = LS.get("rdps.settings", null);
   try {

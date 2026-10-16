@@ -559,3 +559,63 @@ table.t td.wrap { white-space: normal; min-width: 260px; }
   .splash-motto .dev { clip-path: none; } .splash-motto .en { opacity: .8; }
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; scroll-behavior: auto !important; }
 }
+
+/* ---------------------------------------------------------------- teachers v3 */
+.t-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 0 0 18px; }
+.t-step { display: flex; gap: 12px; align-items: center; padding: 12px 14px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); box-shadow: var(--shadow); }
+.t-step > b { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--tint); color: var(--navy); font-family: var(--head); flex: none; transition: background .3s, color .3s; }
+.t-step.done > b { background: var(--green); color: #fff; }
+.t-step.done > b::after { content: "✓"; font-size: .8rem; margin-left: 2px; }
+.t-step h4 { margin: 0; font-size: .95rem; } .t-step span { font-size: .78rem; color: var(--muted); }
+.t-ava { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; flex: none; font-weight: 700; color: #fff; font-family: var(--head);
+  background: linear-gradient(135deg, var(--blue), var(--navy-2)); }
+.t-ava.big { width: 48px; height: 48px; font-size: 1.2rem; }
+.t-list { max-height: 420px; overflow: auto; padding-right: 4px; }
+.t-tabs { margin: 4px 0 0; } .t-tabs button { font-size: .95rem; padding: 8px 18px; }
+.t-subj { margin: 28px 0 12px; font-size: 1.25rem; display: flex; align-items: center; gap: 10px; }
+.t-subj::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.t-card { display: flex; flex-direction: column; gap: 10px; }
+.t-head { display: flex; gap: 12px; align-items: center; } .t-head h3 { margin: 0; }
+.t-line { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--tint-2); border-left: 3px solid var(--blue); font-size: .92rem; }
+.t-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.t-kpi { text-align: center; padding: 8px 4px; border-radius: 10px; border: 1px solid var(--line); }
+.t-kpi b { display: block; font-family: var(--head); font-size: 1.25rem; color: var(--navy); font-variant-numeric: tabular-nums; }
+.t-kpi span { font-size: .7rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.t-charts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+.t-charts .wide { grid-column: 1 / -1; }
+.t-charts h4, .t-card > h4 { margin: 0 0 4px; font-size: .82rem; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.chart-box.sm { height: 190px; }
+.t-secs { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.t-secs > div { padding: 8px 10px; border-radius: 10px; background: var(--tint-2); display: flex; flex-direction: column; }
+.t-secs span { font-size: .78rem; color: var(--muted); }
+.t-more summary { cursor: pointer; color: var(--blue-2); font-weight: 600; font-size: .88rem; }
+.t-more[open] summary { margin-bottom: 8px; }
+.t-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: .78rem; color: var(--muted); margin-top: 8px; }
+.t-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.kpi.good::before { background: linear-gradient(90deg, var(--green), #7ED9AE); } .kpi.good .v { color: var(--green); }
+.kpi.warn::before { background: linear-gradient(90deg, var(--amber), #F5CD7A); } .kpi.warn .v { color: var(--amber); }
+@media (max-width: 760px) {
+  .t-steps { grid-template-columns: 1fr; } .t-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } .t-charts { grid-template-columns: 1fr; }
+}
+
+/* ---------------------------------------------------------------- check step (simple) */
+.check-head { display: flex; gap: 16px; align-items: center; padding: 18px 20px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--card); box-shadow: var(--shadow); }
+.check-head h2 { margin: 0 0 2px; font-size: 1.25rem; } .check-head p { margin: 0; color: var(--muted); }
+.check-head .ch-ico { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; font-size: 1.4rem; flex: none; }
+.check-head.ok .ch-ico { background: var(--green-bg); color: var(--green); font-weight: 800; }
+.check-head.warn { border-color: color-mix(in srgb, var(--amber) 45%, var(--line)); } .check-head.warn .ch-ico { background: var(--amber-bg); }
+.rd-card { border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; background: var(--card); display: flex; flex-direction: column; gap: 8px; }
+.rd-card.needs { border-color: color-mix(in srgb, var(--amber) 55%, var(--line)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--amber) 12%, transparent); }
+.rd-top { display: flex; gap: 12px; align-items: center; }
+.rd-ico { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: var(--tint); font-size: 1.2rem; flex: none; }
+.rd-title { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rd-facts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 3px; }
+.rd-facts span { font-size: .78rem; padding: 2px 9px; border-radius: 999px; background: var(--tint-2); border: 1px solid var(--line); color: var(--navy); }
+.rd-line { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; } .rd-line > b { font-size: .8rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-right: 4px; }
+.chip-s { font-size: .82rem; padding: 3px 10px; border-radius: 999px; background: var(--tint); color: var(--navy); font-weight: 600; }
+.rd-qs { display: flex; flex-direction: column; gap: 8px; }
+.ask-q { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 10px 12px; border-radius: 10px; background: var(--amber-bg); border: 1px solid color-mix(in srgb, var(--amber) 35%, transparent); }
+.ask-q select, .ask-q input { max-width: 260px; }
+.rd-more summary { cursor: pointer; color: var(--blue-2); font-size: .86rem; font-weight: 600; }
+.rd-more[open] summary { margin-bottom: 10px; }
+.rd-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; border-radius: 10px; border: 1px dashed var(--line-2); }

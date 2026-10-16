@@ -20,20 +20,24 @@
   ],
   "check": [
    {
-    "file": "check-0-d607a0eac7.mp3",
-    "dur": 1.138
+    "file": "check-0-4d1eee4797.mp3",
+    "dur": 1.289
    },
    {
-    "file": "check-1-aeb5eb98af.mp3",
-    "dur": 6.873
+    "file": "check-1-6ac329b3f1.mp3",
+    "dur": 8.766
    },
    {
-    "file": "check-2-c3507a6a32.mp3",
-    "dur": 5.468
+    "file": "check-2-f8353392d8.mp3",
+    "dur": 8.301
    },
    {
-    "file": "check-3-e427fc961b.mp3",
-    "dur": 5.84
+    "file": "check-3-aec742d16b.mp3",
+    "dur": 10.008
+   },
+   {
+    "file": "check-4-83ea8ec7a9.mp3",
+    "dur": 8.696
    }
   ],
   "classes": [
@@ -274,24 +278,28 @@
     "dur": 1.219
    },
    {
-    "file": "teachers-1-9134aef854.mp3",
-    "dur": 8.789
+    "file": "teachers-1-4b38b683e2.mp3",
+    "dur": 9.311
    },
    {
-    "file": "teachers-2-a29f99e388.mp3",
-    "dur": 10.542
+    "file": "teachers-2-c681d2d977.mp3",
+    "dur": 9.625
    },
    {
-    "file": "teachers-3-24262e7da2.mp3",
-    "dur": 9.183
+    "file": "teachers-3-1555ff9f4b.mp3",
+    "dur": 11.157
    },
    {
     "file": "teachers-4-936b7944bc.mp3",
     "dur": 10.623
    },
    {
-    "file": "teachers-5-f4e71d6415.mp3",
-    "dur": 9.125
+    "file": "teachers-5-3ba1c75378.mp3",
+    "dur": 7.848
+   },
+   {
+    "file": "teachers-6-9757490e4b.mp3",
+    "dur": 10.739
    }
   ],
   "teacher-compare": [
@@ -304,8 +312,8 @@
     "dur": 10.635
    },
    {
-    "file": "teacher-compare-2-26e02b4341.mp3",
-    "dur": 7.721
+    "file": "teacher-compare-2-addafc56ce.mp3",
+    "dur": 8.069
    }
   ],
   "ask": [
@@ -388,6 +396,24 @@
    {
     "file": "privacy-2-ac29de9347.mp3",
     "dur": 6.165
+   }
+  ],
+  "class-lists": [
+   {
+    "file": "class-lists-0-d4b9a33953.mp3",
+    "dur": 0.882
+   },
+   {
+    "file": "class-lists-1-e239ef640f.mp3",
+    "dur": 8.255
+   },
+   {
+    "file": "class-lists-2-7eac5d5fe3.mp3",
+    "dur": 9.799
+   },
+   {
+    "file": "class-lists-3-e69b189bd0.mp3",
+    "dur": 8.626
    }
   ]
  },
