@@ -721,3 +721,10 @@ table.t td.wrap { white-space: normal; min-width: 260px; }
   .toplist .barwrap { display: none; }
   .stu-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+.b-steps .card { padding: 16px 18px; }
+.b-steps p { margin: 6px 0 10px; }
+.tpl-preview { margin-top: 18px; }
+.tpl-preview summary { cursor: pointer; list-style: none; }
+.tpl-preview summary::-webkit-details-marker { display: none; }
+.tpl-preview summary::before { content: "▸ "; color: var(--blue); }
+.tpl-preview[open] summary::before { content: "▾ "; }

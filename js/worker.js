@@ -4,7 +4,7 @@ import { loadPyodide } from "../vendor/pyodide/pyodide.mjs";
 
 let py = null;
 let bridge = null;
-const BYTES_FNS = new Set(["build_workbook_bytes", "template_bytes", "board_workbook_bytes"]);
+const BYTES_FNS = new Set(["build_workbook_bytes", "template_bytes", "board_workbook_bytes", "board_template_bytes"]);
 
 const BRIDGE = `
 import json, sys
