@@ -10,6 +10,7 @@ const rerender = () => window.__render();
 let analysis = null;       // school-exam teacher analysis
 let analysisFor = null;
 let boardAn = null;        // board-results teacher analysis
+let boardAnCls = "";       // ...for the class picked on the Board page
 let editing = null;        // index of the teacher being edited
 let busy = "";
 
@@ -307,7 +308,8 @@ async function loadAnalysis() {
       analysis = analysis || await engine.call("teacher_analysis");
       analysisFor = S.summary;
     }
-    if (!boardAn) { try { boardAn = await engine.call("board_teachers"); } catch (e) { boardAn = null; } }
+    if (boardAn && boardAnCls !== (S.bCls || "")) boardAn = null;   // another class picked on the Board page
+    if (!boardAn) { try { boardAnCls = S.bCls || ""; boardAn = await engine.call("board_teachers", boardAnCls); } catch (e) { boardAn = null; } }
     box.innerHTML = analysisHtml();
     if (S.tTab === "board" && boardAn && boardAn.cards.length) drawCharts("board");
     if (S.tTab === "school" && analysis && analysis.cards.length) drawCharts("school");

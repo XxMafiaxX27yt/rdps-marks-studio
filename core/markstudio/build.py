@@ -55,7 +55,7 @@ class Project:
         if len(sheets) == 1 and sheets[0].text and gazette.looks_like_gazette(sheets[0].text):
             g = gazette.parse(sheets[0].text, name)
             g.raw_text = sheets[0].text
-            self.gazettes.append(g)
+            self._add_gazette(g)
             return {"kind": "gazette", "name": name, "students": len(g.students), "year": g.year}
         if boardtable.looks_like_board(name, sheets):
             info = self._board_table(name, sheets)
@@ -65,12 +65,18 @@ class Project:
         return self._add_table(name, sheets)
 
     # ------------------------------------------------------------ board results (Board page)
+    def _add_gazette(self, g):
+        """The same board results added twice (same class, year, roll numbers and names) replace the first copy."""
+        key = lambda x: (x.cls, x.year, sorted(f"{st.roll}|{norm_name(st.name)}" for st in x.students))
+        self.gazettes = [o for o in self.gazettes if key(o) != key(g)]
+        self.gazettes.append(g)
+
     def add_board_file(self, name, data):
         sheets = readers.read_file(name, data)
         if len(sheets) == 1 and getattr(sheets[0], "text", None) and gazette.looks_like_gazette(sheets[0].text):
             g = gazette.parse(sheets[0].text, name)
             g.raw_text = sheets[0].text
-            self.gazettes.append(g)
+            self._add_gazette(g)
             return {"kind": "gazette", "name": name, "students": len(g.students), "year": g.year}
         info = self._board_table(name, sheets)
         if not info:
@@ -83,7 +89,7 @@ class Project:
         if gazette.looks_like_gazette(text):
             g = gazette.parse(text, name)
             g.raw_text = text
-            self.gazettes.append(g)
+            self._add_gazette(g)
             return {"kind": "gazette", "name": name, "students": len(g.students), "year": g.year}
         info = self._board_table(name, sheets)
         if not info:
@@ -96,7 +102,7 @@ class Project:
             return None
         txt = getattr(sheets[0], "text", None) if sheets else None
         g.raw_text = txt or "\n".join("\t".join(r) for sh in sheets for r in sh.rows)
-        self.gazettes.append(g)
+        self._add_gazette(g)
         return {"kind": "gazette", "table": True, "name": name, "students": len(g.students), "year": g.year, "cls": g.cls}
 
     # ------------------------------------------------------------ any file: work out what it is
@@ -120,7 +126,7 @@ class Project:
         if text and gazette.looks_like_gazette(text):
             g = gazette.parse(text, name)
             g.raw_text = text
-            self.gazettes.append(g)
+            self._add_gazette(g)
             return {"kind": "board", "what": "cbse", "name": name, "students": len(g.students), "year": g.year,
                     "cls": g.cls}
         kind = prefer or self.classify(name, sheets)
@@ -203,7 +209,7 @@ class Project:
         if gazette.looks_like_gazette(text):
             g = gazette.parse(text, name)
             g.raw_text = text
-            self.gazettes.append(g)
+            self._add_gazette(g)
             return {"kind": "gazette", "name": name, "students": len(g.students), "year": g.year}
         return self._add_table(name, sheets, ocr=any(getattr(s, "ocr", False) for s in sheets))
 

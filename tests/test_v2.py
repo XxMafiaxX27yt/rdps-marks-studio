@@ -358,3 +358,104 @@ def test_any_file_is_sorted_by_itself():
     assert json.loads(api.add_any("Class 6 Half Yearly.csv", b"Roll,Name,English,Maths\n1,Om Das,60,70\n"))["data"]["kind"] == "school"
     st = json.loads(api.state())["data"]
     assert len(st["gazettes"]) == 4 and len(st["class_lists"]) == 1
+
+
+# ---------------------------------------------------------------- Board page v4: streams, highlights, toppers, one workbook per class
+CLASS_X_CSV = (b"Roll,Name,English,Hindi,Maths,Science,Social Science\n"
+               b"1,Om Das,80,70,75,66,90\n2,Asha Rao,91,88,95,93,90\n3,Kabir Sen,45,52,30,41,58\n")
+
+
+def test_board_page_numbers_on_the_made_up_gazette():
+    from markstudio.board import STREAM_ORDER
+    api.init()
+    assert json.loads(api.add_sample_gazette())["ok"]
+    b = json.loads(api.board_summary())["data"]["boards"][0]
+    assert b["label"] == "Class XII · 2025" and b["key"] == "0"
+    # streams: every student in exactly one, toppers sorted
+    assert [s["stream"] for s in b["streams"]] == [x for x in STREAM_ORDER if x in {s["stream"] for s in b["streams"]}]
+    assert sum(s["n"] for s in b["streams"]) == b["candidates"]
+    for s in b["streams"]:
+        assert [t["best5"] for t in s["top"]] == sorted((t["best5"] for t in s["top"]), reverse=True)
+    # subjects: middle mark and middle half, how the same students did elsewhere
+    for s in b["subjects"]:
+        assert s["q1"] <= s["median"] <= s["q3"] and s["min"] <= s["q1"] and s["q3"] <= s["max"]
+    eng = next(s for s in b["subjects"] if s["code"] == "301")
+    assert eng["vs_own"] is not None and eng["vs_own_n"] == b["candidates"]
+    # every student: stream, the 5 subjects counted, rank
+    for st in b["students"]:
+        assert st["stream"] and len(st["best5_subjects"]) == 5 and "301" in st["best5_subjects"]
+    assert b["highlights"][0].startswith(f"{b['passed']} of {b['candidates']} students passed")
+    assert any(h.startswith("Top scorer:") for h in b["highlights"])
+
+
+def test_quartiles_are_excels_and_the_other_subjects_comparison():
+    from markstudio.board import _quartile, subject_vs_own
+
+    class St:
+        def __init__(self, marks):
+            self.subjects = [{"code": c, "marks": m} for c, m in marks]
+
+    assert [float(_quartile([1, 2, 3, 4], k)) for k in (1, 2, 3)] == [1.75, 2.5, 3.25]   # = QUARTILE.INC / MEDIAN
+    assert _quartile([7], 2) == 7 and _quartile([], 2) is None
+    rows = [{"s": St([("A", 90), ("B", 70), ("C", 80)])}, {"s": St([("A", 60), ("B", 50), ("C", 70)])}]
+    d = subject_vs_own(rows)
+    assert float(d["A"][0]) == 7.5 and d["A"][1] == 2        # (90-75 + 60-60) / 2
+    assert float(d["B"][0]) == -15.0
+
+
+def test_the_same_board_file_twice_is_kept_once():
+    from markstudio.sample import sample_gazette
+    api.init()
+    t = sample_gazette(api.S.cfg).encode()
+    api.add_any("gazette.txt", t)
+    api.add_any("gazette copy.txt", t)
+    assert len(api.S.project.gazettes) == 1
+    # two different lists of the same class (no roll numbers) are both kept
+    api.add_any("XII A board.csv", b"Name,English,Physics,Chemistry,Maths,PE\nAsha Rao,80,70,75,66,90\n", "board_XII")
+    api.add_any("XII B board.csv", b"Name,English,Physics,Chemistry,Maths,PE\nOm Das,80,70,75,66,90\n", "board_XII")
+    assert len(api.S.project.gazettes) == 3
+
+
+def test_class_x_and_xii_each_get_their_own_view_and_workbook():
+    import io
+    import openpyxl
+    api.init()
+    api.add_sample_gazette()
+    i = json.loads(api.add_any("Class 10 Board Results.csv", CLASS_X_CSV, "board_X"))["data"]
+    assert (i["kind"], i["cls"]) == ("board", "X")
+    boards = json.loads(api.board_summary())["data"]["boards"]
+    assert [b["label"].split(" · ")[0] for b in boards] == ["Class XII", "Class X"]
+    x = boards[1]
+    assert x["streams"] == [] and all(s["stream"] == "" for s in x["students"])
+    assert [s["name"] for s in sorted(x["students"], key=lambda s: s["rank"])][0] == "Asha Rao"
+    for cls, key in (("XII", ""), ("X", ""), ("", "1")):
+        wb = openpyxl.load_workbook(io.BytesIO(api.board_workbook_bytes(cls, key)))
+        want = "X" if (cls == "X" or key == "1") else "XII"
+        assert wb["Board Dashboard"]["C1"].value.endswith(f"Class {want}")
+        assert ("Streams" in wb.sheetnames) == (want == "XII")
+        assert api.board_workbook_name(cls, key).endswith(f"Class {want}.xlsx")
+
+
+def test_board_workbook_results_in_merit_order_with_formulas():
+    import io
+    import openpyxl
+    api.init()
+    api.add_sample_gazette()
+    wb = openpyxl.load_workbook(io.BytesIO(api.board_workbook_bytes()))
+    assert wb.sheetnames[:5] == ["Board Dashboard", "Results", "Subjects", "Toppers", "Streams"]
+    ws = wb["Results"]
+    heads = [c.value for c in ws[5]]
+    b5, rk = heads.index("Best 5 %") + 1, 1
+    first = ws.cell(6, b5).value
+    assert first.startswith("=SUM(") and first.endswith(")/5")                  # the 5 counted marks
+    assert ws.cell(6, rk).value.startswith('=IF(N(') and "RANK(" in ws.cell(6, rk).value
+    cached = openpyxl.load_workbook(io.BytesIO(api.board_workbook_bytes()), data_only=True)["Results"]
+    vals = [cached.cell(r, b5).value for r in range(6, 6 + 60)]
+    assert vals == sorted(vals, reverse=True)                                    # merit order
+    s = wb["Subjects"]
+    assert [c.value for c in s[5]][:13][-1] == "vs own other subjects"
+    assert s["D6"].value.startswith("=IFERROR(AVERAGE('Results'!") and s["E6"].value.startswith("=IFERROR(MEDIAN(")
+    d = wb["Board Dashboard"]
+    assert d["B7"].value.startswith("=COUNTA('Results'!") and str(d["Q7"].value).startswith('=COUNTIF(')
+    t = [c.value for row in wb["Toppers"].iter_rows() for c in row if isinstance(c.value, str)]
+    assert "Top three" in t and "Stream toppers" in t and "Subject toppers" in t

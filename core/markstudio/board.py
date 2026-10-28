@@ -127,6 +127,19 @@ def analyse(g, cfg):
         for i, gr in enumerate(s.internal):
             internal.setdefault(i, {}).setdefault(gr, 0)
             internal[i][gr] += 1
+    # each student's stream (Class XII: from the subjects they took)
+    for r in rows:
+        r["combo"], r["stream"] = stream_of(cfg, g.cls, [x["code"] for x in r["s"].subjects])
+    # subjects: middle mark, middle half, and how the same students did in their other subjects
+    vs_own = subject_vs_own(rows)
+    for x in subj:
+        mk = sorted(e["marks"] for s in studs for e in s.subjects if e["code"] == x["code"] and e["marks"] is not None)
+        x["median"] = _quartile(mk, 2)
+        x["q1"], x["q3"] = _quartile(mk, 1), _quartile(mk, 3)
+        x["marks"] = mk
+        x["vs_own"], x["vs_own_n"] = vs_own.get(x["code"], (None, 0))
+    streams = stream_summary(rows) if any(r["stream"] for r in rows) else []
+    all_rounders = [r for r in ranked if r["count"] and all((e["marks"] or 0) >= 90 for e in r["s"].subjects)]
     return {
         "meta": {"title": g.title, "year": g.year, "cls": g.cls, "exam_type": g.exam_type, "region": g.region,
                  "school_code": g.school_code, "school_name": g.school_name, "date": g.date, "file": g.file,
@@ -139,8 +152,120 @@ def analyse(g, cfg):
         "above90": sum(1 for r in best if r["best5"] >= 90), "above95": sum(1 for r in best if r["best5"] >= 95),
         "school_pi": school_pi, "rows": rows, "ranked": ranked, "subjects": subj, "distribution": dist,
         "gender": gender, "comp_list": comp, "others_list": others, "internal": internal, "codes": codes,
-        "totals": g.totals, "issues": g.issues,
+        "totals": g.totals, "issues": g.issues, "streams": streams, "all_rounders": all_rounders,
     }
+
+
+# Class XII streams: the subject combination (PCM, Commerce with Maths ...) and the stream it belongs to
+STREAM_OF_COMBO = {"PCMB": "Science", "PCM": "Science", "PCB": "Science", "Science": "Science",
+                   "Commerce with Maths": "Commerce", "Commerce": "Commerce", "Humanities": "Humanities",
+                   "Other subjects": "Other subjects"}
+STREAM_ORDER = ["Science", "Commerce", "Humanities", "Other subjects"]
+
+
+def stream_of(cfg, cls, codes):
+    """-> (combination, stream), both '' for classes without streams (Class X)."""
+    from .groups import combo_of
+    combo = combo_of(cfg, cls or "XII", codes) if (cls or "XII") in cfg.classes else ""
+    return combo, STREAM_OF_COMBO.get(combo, combo)
+
+
+def stream_summary(rows):
+    """One line per stream: students, pass, average best 5, 90+ and the top three."""
+    out = []
+    names = sorted({r["stream"] for r in rows if r["stream"]},
+                   key=lambda s: STREAM_ORDER.index(s) if s in STREAM_ORDER else 9)
+    for st in names:
+        rs = [r for r in rows if r["stream"] == st]
+        best = sorted([r for r in rs if r["best5"] is not None], key=lambda r: (-r["best5"], norm_name(r["s"].name)))
+        combos = {}
+        for r in rs:
+            combos[r["combo"]] = combos.get(r["combo"], 0) + 1
+        out.append({"stream": st, "n": len(rs), "passed": sum(1 for r in rs if r["s"].result == "PASS"),
+                    "pass_pct": Decimal(sum(1 for r in rs if r["s"].result == "PASS")) * 100 / len(rs),
+                    "avg_best5": sum((r["best5"] for r in best), Decimal(0)) / len(best) if best else None,
+                    "above90": sum(1 for r in best if r["best5"] >= 90),
+                    "top": [{"name": r["s"].name, "roll": r["s"].roll, "best5": r["best5"], "combo": r["combo"]}
+                            for r in best[:3]],
+                    "combos": sorted(combos.items(), key=lambda kv: -kv[1])})
+    return out
+
+
+def subject_vs_own(rows):
+    """code -> (average of [mark in the subject - the same student's average in their other subjects], students).
+    A plus = the same students scored higher here than in their other subjects (an easier paper, or better taught)."""
+    out = {}
+    for r in rows:
+        mk = [(x["code"], x["marks"]) for x in r["s"].subjects if x["marks"] is not None]
+        if len(mk) < 3:
+            continue
+        for c, m in mk:
+            others = [v for k, v in mk if k != c]
+            out.setdefault(c, []).append(Decimal(m) - Decimal(sum(others)) / len(others))
+    return {c: (sum(v, Decimal(0)) / len(v), len(v)) for c, v in out.items()}
+
+
+def _quartile(sorted_marks, k):
+    """Excel's QUARTILE.INC / MEDIAN (k = 1, 2, 3) on an already sorted list."""
+    if not sorted_marks:
+        return None
+    pos = Decimal(len(sorted_marks) - 1) * k / 4
+    lo = int(pos)
+    frac = pos - lo
+    a = Decimal(sorted_marks[lo])
+    if frac == 0 or lo + 1 >= len(sorted_marks):
+        return a
+    return a + (Decimal(sorted_marks[lo + 1]) - a) * frac
+
+
+def highlights(an, cfg):
+    """Plain sentences for the top of the page and the dashboard - every number comes from the analysis above."""
+    out = []
+    n, f1 = an["candidates"], (lambda d: f"{float(d):.1f}")
+    if not n:
+        return out
+    line = f"{an['passed']} of {n} students passed ({f1(an['pass_pct'])}%)."
+    if an["comp_list"]:
+        cls = an["meta"].get("cls") or ""
+        who = ", ".join(f"{s.name} ({', '.join(cfg.board_name(c, cls) for c in s.comp)})" for s in an["comp_list"][:4])
+        line += f" Compartment: {who}{' and more' if len(an['comp_list']) > 4 else ''}."
+    out.append(line)
+    if an["ranked"]:
+        top = an["ranked"][0]["best5"]
+        names = [r["s"].name for r in an["ranked"] if r["best5"] == top]
+        out.append(f"Top scorer: {' and '.join(names)} with {f1(top)}% (best 5).")
+    out.append(f"{an['above90']} students scored 90% or more (best 5), {an['above95']} of them 95% or more.")
+    subs = [x for x in an["subjects"] if x["avg"] is not None and x["candidates"] >= 5]
+    if len(subs) > 1:
+        hi, lo = max(subs, key=lambda x: x["avg"]), min(subs, key=lambda x: x["avg"])
+        out.append(f"Highest subject average: {hi['name']} ({f1(hi['avg'])}). Lowest: {lo['name']} ({f1(lo['avg'])}).")
+    fair = [x for x in subs if x["vs_own"] is not None and x["vs_own_n"] >= 8]
+    if len(fair) > 1:
+        up, down = max(fair, key=lambda x: x["vs_own"]), min(fair, key=lambda x: x["vs_own"])
+        if up["vs_own"] > 0 > down["vs_own"]:
+            out.append(f"Compared with their own other subjects, students did best in {up['name']} "
+                       f"(+{f1(up['vs_own'])}) and found {down['name']} hardest ({f1(down['vs_own'])}).")
+    full = [(x["name"], x["toppers"]) for x in an["subjects"] if x["centums"]]
+    if full:
+        out.append("Full marks (100): " + "; ".join(f"{s} - {', '.join(t)}" for s, t in full) + ".")
+    if an["all_rounders"]:
+        k = len(an["all_rounders"])
+        out.append(f"{k} student{'s' if k > 1 else ''} scored 90 or more in every subject.")
+    if an["meta"].get("graded"):
+        gap = [x for x in subs if x["pi"] is not None and x["avg"] - x["pi"] >= 12]
+        if gap:
+            x = max(gap, key=lambda x: x["avg"] - x["pi"])
+            out.append(f"{x['name']}: good marks (average {f1(x['avg'])}) but lower CBSE grades (PI {f1(x['pi'])}) - "
+                       f"CBSE gives grades by position among all its students, so other schools scored high too.")
+    if len(an.get("streams") or []) > 1:
+        best = max((s for s in an["streams"] if s["avg_best5"] is not None and s["n"] >= 5),
+                   key=lambda s: s["avg_best5"], default=None)
+        if best:
+            out.append(f"Best stream average: {best['stream']} ({f1(best['avg_best5'])}% best 5, {best['n']} students).")
+    gd = {x["gender"]: x["avg_best5"] for x in an["gender"] if x["avg_best5"] is not None}
+    if "Girls" in gd and "Boys" in gd:
+        out.append(f"Girls averaged {f1(gd['Girls'])}% and boys {f1(gd['Boys'])}% (best 5).")
+    return out
 
 
 def compare_years(analyses):

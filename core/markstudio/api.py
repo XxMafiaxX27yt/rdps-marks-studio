@@ -602,44 +602,85 @@ def _refresh_boards():
     S.boards = [board.analyse(g, S.cfg) for g in S.project.gazettes]
 
 
+def _board_label(an):
+    m = an["meta"]
+    lab = f"Class {m.get('cls') or 'XII'} · {m.get('year') or ''}".strip(" ·")
+    if (m.get("exam_type") or "MAIN").upper() not in ("MAIN", ""):
+        lab += f" · {m['exam_type'].title()}"
+    return lab
+
+
+def _class_boards(cls=""):
+    """The board results of one class (default: the class of the file added last), oldest year first."""
+    if not S.boards:
+        return []
+    cls = cls or (S.boards[-1]["meta"].get("cls") or "")
+    same = [a for a in S.boards if (a["meta"].get("cls") or "") == cls]
+    return sorted(same, key=lambda a: a["meta"]["year"])
+
+
 @safe
 def board_summary():
     if not S.project.gazettes:
         raise ValueError("Upload a CBSE gazette (.TXT) first.")
     _refresh_boards()
     out = []
-    for an in S.boards:
-        d = {k: v for k, v in an.items() if k not in ("rows", "ranked", "comp_list", "others_list", "issues")}
-        d["ranked"] = [{"rank": r["rank"], "name": r["s"].name, "roll": r["s"].roll, "best5": r["best5"],
-                        "pct_all": r["pct_all"], "result": r["s"].result} for r in an["ranked"][:25]]
+    for i, an in enumerate(S.boards):
+        d = {k: v for k, v in an.items() if k not in ("rows", "ranked", "comp_list", "others_list", "issues",
+                                                      "all_rounders")}
         bcls = an["meta"].get("cls") or ""
-        d["comp_list"] = [{"name": s.name, "roll": s.roll, "comp": [S.cfg.board_name(c, bcls) for c in s.comp]} for s in an["comp_list"]]
-        d["issues"] = [i.to_dict() for i in an["issues"]]
+        d["key"], d["label"] = f"{i}", _board_label(an)
+        d["ranked"] = [{"rank": r["rank"], "name": r["s"].name, "roll": r["s"].roll, "best5": r["best5"],
+                        "pct_all": r["pct_all"], "result": r["s"].result, "stream": r["stream"]} for r in an["ranked"][:25]]
+        d["comp_list"] = [{"name": s.name, "roll": s.roll, "comp": [S.cfg.board_name(c, bcls) for c in s.comp],
+                           "marks": [x["marks"] for x in s.subjects if x["code"] in s.comp]} for s in an["comp_list"]]
+        d["others_list"] = [{"name": s.name, "roll": s.roll, "result": s.result} for s in an["others_list"]]
+        d["all_rounders"] = [r["s"].name for r in an["all_rounders"]]
+        d["issues"] = [x.to_dict() for x in an["issues"]]
+        d["highlights"] = board.highlights(an, S.cfg)
         d["students"] = [{"roll": r["s"].roll, "name": r["s"].name, "gender": r["s"].gender, "result": r["s"].result,
-                          "best5": r["best5"], "pct_all": r["pct_all"], "rank": r["rank"],
+                          "best5": r["best5"], "pct_all": r["pct_all"], "rank": r["rank"], "stream": r["stream"],
+                          "combo": r["combo"], "section": getattr(r["s"], "section", "") or "",
+                          "best5_subjects": r["best5_subjects"], "comp": list(r["s"].comp),
                           "subjects": [{"code": x["code"], "name": S.cfg.board_short(x["code"], bcls), "marks": x["marks"],
                                         "grade": x["grade"]} for x in r["s"].subjects]} for r in an["rows"]]
+        same = _class_boards(bcls)
+        d["years"] = board.compare_years(same) if len({a["meta"]["year"] for a in same}) > 1 else None
+        link = board.school_vs_board(an, S.ds, S.res, S.cfg) if S.res else None
+        d["link"] = {k: v for k, v in link.items() if k != "links"} if link else None
+        d["teachers"] = _board_teachers(an)
         out.append(d)
-    years = board.compare_years(S.boards) if len({a["meta"]["year"] for a in S.boards}) > 1 else None
-    link = board.school_vs_board(S.boards[-1], S.ds, S.res, S.cfg) if S.res else None
-    from .teachers import analyse_board
-    bt = _board_teachers()
-    return {"boards": out, "years": years, "link": {k: v for k, v in link.items() if k != "links"} if link else None,
-            "teachers": bt}
+    for d in out:                       # two files of the same class and year: say which file is which
+        if sum(1 for x in out if x["label"].split(" · ")[:2] == d["label"].split(" · ")[:2]) > 1:
+            d["label"] += " · " + d["meta"]["file"]
+    last = out[-1]
+    return {"boards": out, "years": last["years"], "link": last["link"], "teachers": last["teachers"]}
 
 
-def board_workbook_bytes():
+def _book_set(cls="", key=""):
+    """The board results for one workbook: the file picked on the Board page (key), or the latest of a class,
+    plus the other years of the same class to compare with. The main one is last."""
+    k = str(key or "")
+    if k.isdigit() and int(k) < len(S.boards):
+        main = S.boards[int(k)]
+        others = [a for a in _class_boards(main["meta"].get("cls") or "") if a["meta"]["year"] != main["meta"]["year"]]
+        return others + [main]
+    return _class_boards(cls)
+
+
+def board_workbook_bytes(cls="", key=""):
+    """The board workbook of one class (Class XII or X); several years of that class are compared."""
     from .excel.board_book import write_board_workbook
     _refresh_boards()
-    an = sorted(S.boards, key=lambda a: a["meta"]["year"])
+    an = _book_set(cls, key)
+    if not an:
+        raise ValueError(f"No board results for Class {cls}.")
     years = board.compare_years(an) if len({a["meta"]["year"] for a in an}) > 1 else None
     link = board.school_vs_board(an[-1], S.ds, S.res, S.cfg) if S.res else None
-    texts = []
-    for src_g in S.project.gazettes:
-        texts.append((src_g.file, getattr(src_g, "raw_text", "")))
-    from .teachers import analyse_board
+    files = {a["meta"]["file"] for a in an}
+    texts = [(g.file, getattr(g, "raw_text", "")) for g in S.project.gazettes if g.file in files]
     return write_board_workbook(an, S.cfg, years=years, link=link, raw_texts=texts,
-                                teachers=_board_teachers(an[-1]))
+                                teachers=_board_teachers(an[-1]), highlights=board.highlights(an[-1], S.cfg))
 
 
 def _board_teachers(an=None):
@@ -650,12 +691,12 @@ def _board_teachers(an=None):
 
 
 @safe
-def board_teachers():
-    """Teachers on the latest board results (Teachers page, Board results tab)."""
+def board_teachers(cls=""):
+    """Teachers on the latest board results of a class (Teachers page, Board results tab)."""
     if not S.project.gazettes:
         raise ValueError("Upload the board results on the Board page first.")
     _refresh_boards()
-    return _board_teachers()
+    return _board_teachers((_class_boards(cls) or S.boards)[-1])
 
 
 @safe
@@ -674,9 +715,12 @@ def add_sample_board_demo():
     return {"class_lists": _class_lists_out()}
 
 
-def board_workbook_name():
-    y = S.boards[-1]["meta"]["year"] if S.boards else ""
-    return f"RDPS Board Results {y}.xlsx"
+def board_workbook_name(cls="", key=""):
+    an = _book_set(cls, key)
+    if not an:
+        return "RDPS Board Results.xlsx"
+    m = an[-1]["meta"]
+    return f"RDPS Board Results {m['year']} Class {m.get('cls') or 'XII'}.xlsx"
 
 
 # ================================================================== ask + commands
