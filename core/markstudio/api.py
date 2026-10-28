@@ -715,6 +715,29 @@ def add_sample_board_demo():
     return {"class_lists": _class_lists_out()}
 
 
+def board_template_bytes(example=False):
+    """The Board analysis template (Students + Teachers) - filled once a year by the school office.
+    example=True: filled with made-up students and teachers, to see how it is filled in."""
+    from .excel.board_template import board_template_bytes as make
+    return make(S.cfg, example=bool(example))
+
+
+EXAMPLE_TEMPLATE = "Board analysis - made-up example.xlsx"
+
+
+@safe
+def add_sample_board_full():
+    """The whole made-up example: CBSE results for 60 made-up Class XII students + the filled-in Board analysis
+    template (their sections, made-up teachers), so every tab - teachers too - can be tried."""
+    from .sample import sample_gazette
+    from .excel.board_template import board_template_bytes as make
+    S.project.add_file("Sample CBSE result (made-up).txt", sample_gazette(S.cfg).encode())
+    S.project.class_lists = [c for c in S.project.class_lists if c["file"] != EXAMPLE_TEMPLATE]
+    S.project.add_any(EXAMPLE_TEMPLATE, make(S.cfg, example=True))
+    _refresh_boards()
+    return {"class_lists": _class_lists_out()}
+
+
 def board_workbook_name(cls="", key=""):
     an = _book_set(cls, key)
     if not an:

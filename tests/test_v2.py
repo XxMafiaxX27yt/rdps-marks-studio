@@ -459,3 +459,52 @@ def test_board_workbook_results_in_merit_order_with_formulas():
     assert d["B7"].value.startswith("=COUNTA('Results'!") and str(d["Q7"].value).startswith('=COUNTIF(')
     t = [c.value for row in wb["Toppers"].iter_rows() for c in row if isinstance(c.value, str)]
     assert "Top three" in t and "Stream toppers" in t and "Subject toppers" in t
+
+
+def test_board_analysis_template_round_trip_and_the_made_up_example():
+    import io
+    import openpyxl
+    api.init()
+    wb = openpyxl.load_workbook(io.BytesIO(api.board_template_bytes()))
+    assert wb.sheetnames == ["How to fill", "Students", "Teachers"] and wb["Students"].max_row == 1
+    ws, wt = wb["Students"], wb["Teachers"]
+    ws.append(["99100001", "4500", "Asha Rao", "XII", "A"])
+    ws.append(["99100002", "4501", "Om Das", "X", "C"])
+    wt.append(["Ms. Example One", "Physics", "XII-A, XII-B"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    i = json.loads(api.add_any("Board analysis.xlsx", buf.getvalue(), "", "board"))["data"]
+    assert i["kind"] == "class_list"                                   # the Teachers sheet is not read as students
+    studs = api.S.project.class_lists[0]["students"]
+    assert [(s["name"], s["cls"], s["section"], s["board_roll"]) for s in studs] == \
+        [("Asha Rao", "XII", "A", "99100001"), ("Om Das", "X", "C", "99100002")]
+    assert [(t["name"], t["subject"]) for t in api.S.project.file_teachers] == [("Ms. Example One", "Physics")]
+    # the whole made-up example: every student placed, every subject has a teacher, twice = once
+    api.init()
+    api.add_sample_board_full()
+    api.add_sample_board_full()
+    assert len(api.S.project.class_lists) == 1 and len(api.S.project.gazettes) == 1
+    t = json.loads(api.board_summary())["data"]["teachers"]
+    assert t["placement"]["placed"] == t["placement"]["total"] == 60 and t["split"] and not t["untaught"]
+    eng = [c for c in t["cards"] if c["subject_name"] == "English"]
+    assert len(eng) == 2 and eng[0]["fair"]["verdict"] != "Only teacher of this subject"
+    ex = openpyxl.load_workbook(io.BytesIO(api.board_template_bytes(True)))
+    assert ex["Students"].max_row == 61 and ex["Teachers"].max_row > 10
+
+
+def test_ask_board_streams_all_rounders_and_hardest():
+    api.init()
+    api.add_sample_gazette()
+    ask = lambda q: json.loads(api.ask(q))["data"]
+    assert ask("stream toppers")["query"] == {"op": "board_streams"}
+    d = ask("commerce top 3")
+    assert d["query"] == {"op": "board_streams", "stream": "Commerce", "n": 3} and len(d["table"]["rows"]) >= 3
+    assert ask("who got 90 in every subject")["query"] == {"op": "board_allround", "value": 90}
+    assert ask("sab subject me 95 se upar kaun hai")["query"]["value"] == 95
+    assert ask("hardest subject in boards")["query"] == {"op": "board_hardest", "order": "hard"}
+    assert ask("easiest subject")["query"]["order"] == "easy"
+    assert ask("top 5 in physics")["query"] == {"op": "board_top", "n": 5, "subject": "042"}   # no school marks: all board
+    # Class X and XII both loaded: the class in the question picks the results
+    api.add_any("Class 10 Board Results.csv", CLASS_X_CSV, "board_X")
+    d = ask("class 10 board toppers")
+    assert d["query"]["cls"] == "X" and d["table"]["rows"][0][1] == "Asha Rao"

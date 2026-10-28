@@ -349,7 +349,7 @@ class Understander:
         if self.boards and (e["teachers"] or _has(low, ["teacher", "teachers", "faculty"])) and \
                 (not self.ds or _has(low, kw["board"])):
             return "teacher", "keyword"
-        if self.boards and (_has(low, kw["board"]) or (e["board_rolls"] and not self.ds)):
+        if self.boards and (_has(low, kw["board"]) or not self.ds):     # only board results loaded: every question is about them
             return "board", "keyword"
         if e["teachers"] or _has(low, ["teacher", "teachers", "teacher wise", "teacherwise", "faculty", "teaching",
                                        "who teaches", "taught by"]):
@@ -741,6 +741,23 @@ class Understander:
                 q = {"op": "board_summary"}
         elif _has(low, ["compartment", "comp", "comptt", "supplementary"]):
             q = {"op": "board_comp"}
+        elif _has(low, ["every subject", "all subjects", "each subject", "all rounder", "allrounder", "all-rounder",
+                        "har subject", "sab subject", "sabhi subject", "all the subjects"]) and \
+                not _has(low, ["topper of each", "toppers of each", "top in each", "subject toppers", "subject wise"]):
+            nums = [int(x) for x in re.findall(r"\b(\d{2,3})\b", low) if 33 <= int(x) <= 100]
+            q = {"op": "board_allround", "value": nums[0] if nums else 90}
+        elif _has(low, ["hardest", "toughest", "difficult", "easiest", "tough", "mushkil", "kathin", "aasan", "easy"]):
+            q = {"op": "board_hardest", "order": "easy" if _has(low, ["easiest", "easy", "aasan"]) else "hard"}
+        elif _has(low, ["stream", "streams", "science", "commerce", "humanities", "arts", "medical", "non medical",
+                        "pcm", "pcb"]):
+            q = {"op": "board_streams"}
+            for words, name in ((["science", "medical", "non medical", "pcm", "pcb", "pcmb"], "Science"),
+                                (["commerce"], "Commerce"), (["humanities", "arts"], "Humanities")):
+                if _has(low, words):
+                    q["stream"] = name
+                    break
+            if e["n"]:
+                q["n"] = e["n"]
         elif _has(low, self.kw["top"] + ["topper", "toppers", "rank"]) or e["n"]:
             q = {"op": "board_top", "n": e["n"] or 10}
             if e["subjects"]:
@@ -751,6 +768,8 @@ class Understander:
                 q["subject"] = e["subjects"][0]
         else:
             q = {"op": "board_summary"}
+        if e["classes"] and any((a["meta"].get("cls") or "") == e["classes"][0] for a in self.boards):
+            q["cls"] = e["classes"][0]                  # "class 10 board toppers" -> the Class X results
         return {"query": q, "matched_by": "keyword", "understood": self.describe(q)}
 
     # ============================================================ words
@@ -764,10 +783,20 @@ class Understander:
                 "student_subjects": "student's subjects in order", "rank": "student's rank", "pass_rate": "pass rate",
                 "distribution": "grade distribution", "improved": "most improved", "dropped": "students who dropped",
                 "absent": "absent / on leave", "help": "help", "summary": "summary of results",
-                "toppers_by": "toppers", "teacher": "teacher results", "internals": "internal marks"}.get(op, op.replace("_", " "))
+                "toppers_by": "toppers", "teacher": "teacher results", "internals": "internal marks",
+                "board_streams": "board results by stream", "board_allround": "board: high marks in every subject",
+                "board_hardest": "board: harder / easier subjects for the same students"}.get(op, op.replace("_", " "))
         parts = [bits]
         if q.get("n"):
             parts.append(f"(n = {q['n']})")
+        if q.get("stream"):
+            parts.append(q["stream"])
+        if op == "board_allround":
+            parts.append(f"({q.get('value', 90)} or more)")
+        if op == "board_hardest":
+            parts.append("(easiest first)" if q.get("order") == "easy" else "(hardest first)")
+        if q.get("cls") and op.startswith("board"):
+            parts.append(f"Class {q['cls']}")
         if q.get("subject"):
             parts.append(f"in {cfg.subject_name(q['subject'])}")
         for c in q.get("conds", []):

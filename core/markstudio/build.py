@@ -195,8 +195,18 @@ class Project:
         return self._class_lists(name, sheets)
 
     def _class_lists(self, name, sheets):
+        # a Teachers sheet in the same file (the Board analysis template) is the teachers, not more students
+        teachers = []
+        for sh in sheets:
+            if norm(sh.name) in TEACHER_SHEETS:
+                teachers += read_teachers(sh.rows, self.cfg, self.vocab, name, sh.name)
+        sheets = [sh for sh in sheets if norm(sh.name) not in TEACHER_SHEETS and norm(sh.name) not in INFO_SHEETS]
+        have = {(t["name"], t["subject"]) for t in self.file_teachers}
+        self.file_teachers += [dict(t, source=name) for t in teachers if (t["name"], t["subject"]) not in have]
         found = classlist.read(name, sheets, self.cfg, self.vocab)
         if not found:
+            if teachers:
+                return []
             raise ValueError(f"{name}: no column of student names was found, so it could not be read as a class list.")
         for cl in found:
             self._cl += 1

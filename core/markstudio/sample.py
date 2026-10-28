@@ -295,3 +295,33 @@ def sample_board_teachers():
             {"name": "Mr. Karan Ghosh", "subject": "041", "classes": "XII-A, XII-B"},
             {"name": "Ms. Sana Pillai", "subject": "041", "classes": "XII-C"},
             {"name": "Ms. Ritu Bose", "subject": "083", "classes": "XII"}]
+
+
+# ---------------------------------------------------------------- the Board analysis template, filled in (made-up)
+SECTION_OF_COMBO = {"PCMB": "A", "PCM": "A", "PCB": "B", "Science": "B", "Commerce with Maths": "C", "Commerce": "D"}
+EXAMPLE_TEACHERS = [
+    ("Ms. Neha Kapoor", "English", "XII-A, XII-B, XII-C"), ("Mr. Arjun Malhotra", "English", "XII-D, XII-E"),
+    ("Mr. Vivek Sharma", "Mathematics", "XII-A"), ("Ms. Pooja Arora", "Mathematics", "XII-C"),
+    ("Mr. Rohit Bansal", "Physics", "XII-A"), ("Ms. Kiran Mehta", "Physics", "XII-B"),
+    ("Ms. Anjali Gupta", "Chemistry", "XII-A, XII-B"), ("Dr. Sunil Nair", "Biology", "XII-A, XII-B"),
+    ("Mr. Karan Sethi", "Computer Science", "XII-A, XII-B, XII-C, XII-D, XII-E"),
+    ("Ms. Tanya Bose", "Informatics Practices", "XII-A, XII-B, XII-C, XII-D, XII-E"),
+    ("Mr. Deepak Rana", "Physical Education", "XII-A, XII-B, XII-C, XII-D, XII-E"),
+    ("Ms. Ritu Jain", "Economics", "XII-C, XII-D, XII-E"), ("Mr. Manish Khanna", "Business Studies", "XII-C, XII-D"),
+    ("Ms. Swati Agarwal", "Accountancy", "XII-C, XII-D"), ("Ms. Meera Iyer", "Political Science", "XII-E"),
+    ("Ms. Rekha Pillai", "Psychology", "XII-E"),
+]
+
+
+def sample_board_analysis(cfg):
+    """-> (students, teachers) for the Board analysis template, matching sample_gazette(): every made-up student
+    with a made-up admission no and a section from their subjects, and made-up teachers with their sections."""
+    from .gazette import parse
+    from .groups import combo_of
+    g = parse(sample_gazette(cfg), "sample.txt")
+    studs = []
+    for i, st in enumerate(g.students):
+        combo = combo_of(cfg, "XII", [x["code"] for x in st.subjects])
+        studs.append([st.roll, str(7001 + i), st.name, "XII", SECTION_OF_COMBO.get(combo, "E")])
+    return studs, [list(t) for t in EXAMPLE_TEACHERS]
+

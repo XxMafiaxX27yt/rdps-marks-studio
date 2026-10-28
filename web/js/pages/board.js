@@ -5,6 +5,7 @@ import { S } from "../state.js";
 import { $, $$, esc, fmt, toast, chart, countUp, download, XLSX, table, cssVar } from "../ui.js";
 import { qmark } from "../explain.js";
 import { addAny } from "../intake.js";
+import { printBoard } from "../report.js";
 
 const rerender = () => window.__render();
 let busy = false;
@@ -14,6 +15,19 @@ const GRADES = ["A1", "A2", "B1", "B2", "C1", "C2", "D1", "D2", "E"];
 const BAND_RAMP = ["#1E8E5A", "#4CB782", "#06A7E7", "#5CC4EF", "#F7C873", "#F2A93B", "#C0392B"];
 const MEDAL = { 1: "🥇", 2: "🥈", 3: "🥉" };
 const BARS = () => [cssVar("--blue"), "#3E7CA6", "#7FD0F2", "#9DB4C7", "#F2A93B", "#5CC4EF", "#1E8E5A"];   // readable on light and dark
+const TEMPLATE_PREVIEW = `<details class="card tpl-preview"><summary><b>What the Board analysis file looks like</b> <span class="muted small">(made-up example)</span></summary>
+  <div class="grid g2" style="margin-top:12px">
+    <div><div class="tiny muted" style="margin-bottom:6px">SHEET “Students” - one row per student</div>
+      <div class="table-wrap"><table class="t"><thead><tr><th>CBSE Roll No</th><th>Admission No</th><th>Name</th><th>Class</th><th>Section</th></tr></thead>
+      <tbody><tr><td>99000001</td><td>7001</td><td>Om Tiwari</td><td>XII</td><td>E</td></tr><tr><td>99000002</td><td>7002</td><td>Kavya Sethi</td><td>XII</td><td>B</td></tr>
+      <tr><td>99000003</td><td>7003</td><td>Riya Menon</td><td>XII</td><td>A</td></tr></tbody></table></div></div>
+    <div><div class="tiny muted" style="margin-bottom:6px">SHEET “Teachers” - one row per teacher and subject</div>
+      <div class="table-wrap"><table class="t"><thead><tr><th>Name</th><th>Subject</th><th>Classes</th></tr></thead>
+      <tbody><tr><td>Ms. Neha Kapoor</td><td>English</td><td>XII-A, XII-B, XII-C</td></tr><tr><td>Mr. Rohit Bansal</td><td>Physics</td><td>XII-A</td></tr>
+      <tr><td>Ms. Swati Agarwal</td><td>Accountancy</td><td>XII-C, XII-D</td></tr></tbody></table></div></div></div>
+  <p class="small muted" style="margin:10px 0 0">CBSE roll numbers come from the roll-number list the exam office gets from CBSE (Pariksha Sangam). If a roll number is missing, the admission number and then the name are used.</p>
+  <div class="row" style="margin-top:10px"><button class="btn btn-ghost btn-sm" data-btemplate="empty">Download the empty template</button>
+    <button class="btn btn-soft btn-sm" data-btemplate="example">Download the filled made-up example</button></div></details>`;
 const V = { key: null, tab: "overview", stu: null, q: "", stream: "", result: "", sort: "rank" };
 
 const cur = () => {
@@ -31,6 +45,7 @@ export function html() {
   const head = `<div class="page-head"><div><h1>Board results</h1>
       <p>CBSE's result file (“85xxx.TXT”) or the school's own list of board marks. Read on this computer only - nothing is uploaded.</p></div>
       ${b ? `<div class="row"><label class="btn btn-ghost" title="Another class or another year">＋ Add a file<input type="file" id="b-in" multiple hidden accept=".txt,.TXT,.pdf,.xlsx,.xlsm,.xls,.csv,.png,.jpg,.jpeg,.webp"></label>
+        <button class="btn btn-ghost" id="b-print" title="Two A4 pages for the principal - choose “Save as PDF” to make a PDF">🖨 Print report</button>
         <button class="btn btn-primary" id="b-dl">Download Excel · Class ${esc(b.meta.cls || "XII")}</button></div>` : ""}</div>`;
   if (!b) {
     return `${head}<label class="drop" id="bdrop">
@@ -38,7 +53,15 @@ export function html() {
         <div class="drop-icon"><svg viewBox="0 0 24 24"><path d="M12 3l9 4-9 4-9-4 9-4zm-6 6v5c0 2 3 4 6 4s6-2 6-4V9"/></svg></div>
         <h3>Drop the board results here</h3><div class="muted">CBSE's “12345.TXT” or your own marks list · Class XII or X is found by itself · several years can be added</div>
       </label>
-      <div class="row" style="justify-content:center;margin-top:12px"><button class="btn btn-soft" id="b-sample">Try made-up board results</button></div>
+      <div class="row" style="justify-content:center;margin-top:12px"><button class="btn btn-soft" id="b-sample">Try the full made-up example</button>
+        <span class="muted small">60 made-up Class XII students, their sections and teachers - every tab works</span></div>
+      <div class="grid g3 b-steps" style="margin-top:22px">
+        <div class="card"><b>1 · The result file</b><p class="small muted">The .TXT file CBSE sends the school (or your own list of board marks). That alone gives every chart, the toppers and the Excel file.</p></div>
+        <div class="card"><b>2 · Sections and teachers <span class="muted tiny">(optional)</span></b><p class="small muted">Fill the Board analysis template once a year - students with their section, teachers with their sections - and drop it here too.</p>
+          <div class="row"><button class="btn btn-ghost btn-sm" data-btemplate="empty">Empty template</button>
+            <button class="btn btn-soft btn-sm" data-btemplate="example">Filled example</button></div></div>
+        <div class="card"><b>3 · Share</b><p class="small muted">Print a two-page report for the principal, or download the Excel workbook with every student and formula.</p></div>
+      </div>${TEMPLATE_PREVIEW}
       ${busy ? `<div class="card" style="margin-top:14px"><span class="spinner" style="color:var(--blue)"></span> Reading the board results…</div>` : ""}`;
   }
   return `${head}${busy ? `<div class="card" style="margin-bottom:14px"><span class="spinner" style="color:var(--blue)"></span> Reading the board results…</div>` : ""}
@@ -267,7 +290,9 @@ function teachersHtml(b) {
   if (!t || !t.cards.length) {
     return `<div class="card"><h3>Teachers ${qmark("teachers")}</h3><p class="muted">Add the teachers (name, subject, class ${esc((t && t.cls) || b.meta.cls || "")} and sections)
       and the class lists on the <a href="#/teachers">Teachers page</a> to see how each teacher's own students did in the boards.</p>
-      <p class="small">The comparison is fair: each student's board mark in the subject is compared with <b>their own</b> other subjects, so a strong or weak section does not count for or against the teacher.</p></div>`;
+      <p class="small">The comparison is fair: each student's board mark in the subject is compared with <b>their own</b> other subjects, so a strong or weak section does not count for or against the teacher.</p>
+      <p class="small">Quickest way: fill the <b>Board analysis template</b> (students with sections + teachers with sections) and drop it on this page.</p></div>
+    ${TEMPLATE_PREVIEW}`;
   }
   const good = t.cards.filter((c) => c.fair.verdict === "Clear positive impact").length;
   const talk = t.cards.filter((c) => c.fair.verdict === "Worth a conversation").length;
@@ -407,6 +432,13 @@ async function addFiles(files) {
   busy = false; rerender();
 }
 
+async function downloadTemplate(example = false) {
+  try {
+    download(await engine.bytes("board_template_bytes", example), example ? "RDPS Board analysis - made-up example.xlsx" : "RDPS Board analysis template.xlsx", XLSX);
+    toast(example ? "Made-up example downloaded - open it to see how the file is filled ✓" : "Template downloaded - fill it and drop it on this page ✓", "ok");
+  } catch (e) { toast(esc(e.message), "err", 8000); }
+}
+
 function openStudent(b, roll) {
   V.stu = roll; V.q = ""; V.tab = "students";
   rerender();
@@ -426,12 +458,18 @@ export function mount(root) {
   const sm = $("#b-sample");
   sm && sm.addEventListener("click", async () => {
     busy = true; rerender();
-    try { await engine.call("add_sample_gazette"); S.board = await engine.call("board_summary"); V.key = null; V.tab = "overview"; toast("Made-up board results loaded (fake school, fake names).", "ok"); }
+    try {
+      await engine.call("add_sample_board_full"); S.board = await engine.call("board_summary"); V.key = null; V.tab = "overview";
+      toast("Made-up example loaded: CBSE results + sections + teachers (fake school, fake names).", "ok");
+    }
     catch (e) { toast(esc(e.message), "err"); }
     busy = false; rerender();
   });
   const b = cur();
-  if (!b) return;
+  if (!b) {
+    root.addEventListener("click", (e) => { const tb = e.target.closest("[data-btemplate]"); if (tb) downloadTemplate(tb.dataset.btemplate === "example"); });
+    return;
+  }
   V.key = b.key;
   S.bCls = b.meta.cls || "";
   if (!tabs(b).some(([k]) => k === V.tab)) V.tab = "overview";
@@ -448,8 +486,12 @@ export function mount(root) {
     } catch (e) { toast(esc(e.message), "err", 9000); }
     dl.disabled = false; dl.textContent = label;
   });
+  const pr = $("#b-print");
+  pr && pr.addEventListener("click", () => printBoard(b, S.settings));
   drawTab(b);
   root.addEventListener("click", (e) => {
+    const tb = e.target.closest("[data-btemplate]");
+    if (tb) { downloadTemplate(tb.dataset.btemplate === "example"); return; }
     const t = e.target.closest("[data-btab],[data-bkey],[data-roll],[data-boardtab]");
     if (!t || !root.contains(t)) return;
     if (t.dataset.bkey) { V.key = t.dataset.bkey; V.stu = null; rerender(); return; }

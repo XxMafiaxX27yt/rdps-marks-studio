@@ -13,7 +13,7 @@ from . import views
 OPS = {"top", "bottom", "list", "count", "average", "highest", "lowest", "hardest", "easiest", "compare",
        "student", "student_subjects", "rank", "pass_rate", "distribution", "improved", "dropped", "absent",
        "help", "board_top", "board_subject", "board_summary", "board_comp", "board_student", "summary", "toppers_by",
-       "teacher", "internals", "board_teachers"}
+       "teacher", "internals", "board_teachers", "board_streams", "board_allround", "board_hardest"}
 COMBO_SETS = {"*Commerce": {"Commerce with Maths", "Commerce"}, "*Science": {"PCM", "PCB", "PCMB", "Science"}}
 LABELS = {"Strong", "Weak", "Needs attention", "On track"}
 
@@ -877,11 +877,77 @@ class Engine:
                 "how": "Questions are matched to fixed, checked operations - nothing is guessed."}
 
     # ---- board
-    def _an(self):
+    def _an(self, q=None):
+        """The board results asked about: the latest of the class named in the question (X / XII), else the latest."""
+        cls = (q or {}).get("cls")
+        if cls:
+            same = [a for a in self.board if (a["meta"].get("cls") or "") == cls]
+            if same:
+                return sorted(same, key=lambda a: a["meta"]["year"])[-1]
         return self.board[-1]
 
+    def op_board_streams(self, q):
+        an = self._an(q)
+        st = an.get("streams") or []
+        y = an["meta"]["year"]
+        if not st:
+            return {"text": "These board results have no streams (streams are worked out for Class XII from the subjects taken).",
+                    "how": "-"}
+        want = q.get("stream")
+        if want:
+            s = next((x for x in st if x["stream"] == want), None)
+            if not s:
+                return {"text": f"There are no {want} students in the {y} board results.", "how": "-"}
+            n = q.get("n") or 5
+            rows = sorted([r for r in an["rows"] if r["stream"] == want and r["best5"] is not None],
+                          key=lambda r: (-r["best5"], norm_name(r["s"].name)))
+            cut = rows[:n]
+            if cut and len(rows) > n:
+                cut += [r for r in rows[n:] if r["best5"] == cut[-1]["best5"]]
+            table = [[1 + sum(1 for o in rows if o["best5"] > r["best5"]), r["s"].name, r["s"].roll, r["combo"],
+                      float(round(r["best5"], 2))] for r in cut]
+            return {"text": f"Board {y} - {want}: {s['n']} students, average best 5 {_p(s['avg_best5'])}%. Top {n}:",
+                    "how": "Stream from the subjects each student took; ranked by best 5 % within the stream.",
+                    "table": {"columns": ["Rank", "Name", "Roll", "Subjects", "Best 5 %"], "rows": table}}
+        rows = [[x["stream"], x["n"], float(round(x["pass_pct"], 1)),
+                 float(round(x["avg_best5"], 2)) if x["avg_best5"] is not None else None, x["above90"],
+                 x["top"][0]["name"] if x["top"] else "-", float(round(x["top"][0]["best5"], 1)) if x["top"] else None]
+                for x in st]
+        return {"text": f"Board {y} - each stream and its topper.",
+                "how": "Stream from the subjects each student took (Science / Commerce / Humanities).",
+                "table": {"columns": ["Stream", "Students", "Pass %", "Avg best 5 %", "90%+", "Topper", "Topper %"], "rows": rows},
+                "chart": {"type": "bar", "labels": [r[0] for r in rows], "values": [r[3] for r in rows], "label": "Avg best 5 %"}}
+
+    def op_board_allround(self, q):
+        an = self._an(q)
+        v = q.get("value") or 90
+        hit = [r for r in an["ranked"] if r["count"] and all((x["marks"] or 0) >= v for x in r["s"].subjects)]
+        rows = [[r["rank"], r["s"].name, r["s"].roll, min(x["marks"] for x in r["s"].subjects), float(round(r["best5"], 2))]
+                for r in hit]
+        return {"text": f"{len(rows)} student{'s' if len(rows) != 1 else ''} scored {v} or more in every subject "
+                        f"in the {an['meta']['year']} boards.",
+                "how": "Every subject's board mark checked, including the 6th (additional) subject.",
+                "table": {"columns": ["Rank", "Name", "Roll", "Lowest mark", "Best 5 %"], "rows": rows}}
+
+    def op_board_hardest(self, q):
+        an = self._an(q)
+        subs = [x for x in an["subjects"] if x.get("vs_own") is not None and x.get("vs_own_n", 0) >= 3]
+        if not subs:
+            return {"text": "Not enough students with three or more subjects to compare.", "how": "-"}
+        easy = q.get("order") == "easy"
+        subs.sort(key=lambda x: x["vs_own"], reverse=easy)
+        x = subs[0]
+        sign = ("+" if x["vs_own"] >= 0 else "") + _p(x["vs_own"])
+        rows = [[s["name"], s["vs_own_n"], float(round(s["vs_own"], 1)), float(round(s["avg"], 1)) if s["avg"] is not None else None]
+                for s in subs]
+        return {"text": f"{'Easiest' if easy else 'Hardest'} for the same students: {x['name']} ({sign} marks "
+                        f"compared with their own other subjects).",
+                "how": "For each student: mark in the subject minus their average in their other subjects, then averaged. "
+                       "Fairer than plain averages, because each subject has different students.",
+                "table": {"columns": ["Subject", "Students", "vs own other subjects", "Average"], "rows": rows}}
+
     def op_board_top(self, q):
-        an = self._an()
+        an = self._an(q)
         n = q.get("n") or 10
         subj = q.get("subject")
         if subj:
@@ -911,7 +977,7 @@ class Engine:
                 "chart": {"type": "bar", "labels": [r[1] for r in rows], "values": [r[3] for r in rows], "label": "Best 5 %"}}
 
     def op_board_subject(self, q):
-        an = self._an()
+        an = self._an(q)
         rows = [[x["name"], x["candidates"], float(round(x["avg"], 2)) if x["avg"] is not None else None, x["max"],
                  x["failed"], float(round(x["pi"], 2)) if x["pi"] is not None else None] for x in an["subjects"]]
         subj = q.get("subject")
@@ -927,7 +993,7 @@ class Engine:
                 "chart": {"type": "bar", "labels": [r[0] for r in rows], "values": [r[2] for r in rows], "label": "Average"}}
 
     def op_board_summary(self, q):
-        an = self._an()
+        an = self._an(q)
         return {"text": f"Board {an['meta']['year']}: {an['candidates']} candidates, {an['passed']} passed ({_p(an['pass_pct'])}%), "
                         f"{an['comp']} compartment, average best-5 {_p(an['avg_best5'])}%, {an['above90']} scored 90%+, "
                         f"school PI {_p(an['school_pi'])}.",
@@ -939,7 +1005,7 @@ class Engine:
         if not self.teachers:
             return {"text": "No teachers have been added yet. Add them on the Teachers page (name, subject, class XII or X).",
                     "how": "-"}
-        r = analyse_board(self._an(), self.teachers, self.cfg, self.ds, self.class_lists)
+        r = analyse_board(self._an(q), self.teachers, self.cfg, self.ds, self.class_lists)
         cards = [c for c in r["cards"] if not q.get("subject") or q["subject"] in (c["subject"], c["school_subject"])]
         order = q.get("order")
 
@@ -967,7 +1033,7 @@ class Engine:
                           "label": "marks above / below"}}
 
     def op_board_comp(self, q):
-        an = self._an()
+        an = self._an(q)
         cfg = self.cfg
         rows = [[s.name, s.roll, ", ".join(cfg.subject_name(c) if cfg else c for c in s.comp)] for s in an["comp_list"]]
         return {"text": f"{len(rows)} compartment{'s' if len(rows) != 1 else ''} in the {an['meta']['year']} boards.",
@@ -975,7 +1041,7 @@ class Engine:
                 "table": {"columns": ["Name", "Roll", "Compartment in"], "rows": rows}}
 
     def op_board_student(self, q):
-        an = self._an()
+        an = self._an(q)
         roll = q.get("roll")
         r = next((x for x in an["rows"] if x["s"].roll == roll), None)
         if not r:
