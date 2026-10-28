@@ -488,6 +488,10 @@ def test_board_analysis_template_round_trip_and_the_made_up_example():
     assert t["placement"]["placed"] == t["placement"]["total"] == 60 and t["split"] and not t["untaught"]
     eng = [c for c in t["cards"] if c["subject_name"] == "English"]
     assert len(eng) == 2 and eng[0]["fair"]["verdict"] != "Only teacher of this subject"
+    # the made-up teacher effects show every kind of result
+    v = {c["name"]: c["fair"]["verdict"] for c in t["cards"]}
+    assert v["Mr. Arjun Malhotra"] == v["Mr. Rohit Bansal"] == "Clear positive impact"
+    assert v["Ms. Kiran Mehta"] == "Worth a conversation" and "No clear difference" in v.values()
     ex = openpyxl.load_workbook(io.BytesIO(api.board_template_bytes(True)))
     assert ex["Students"].max_row == 61 and ex["Teachers"].max_row > 10
 

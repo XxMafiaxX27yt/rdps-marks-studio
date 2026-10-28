@@ -167,7 +167,7 @@ def sample_files(cfg, mistakes=False):
     return out
 
 
-def sample_gazette(cfg, seed=5, n=60):
+def sample_gazette(cfg, seed=5, n=60, effects=None):
     """A made-up CBSE-style result gazette (fake school 99999, fake names, fake roll numbers 99xxxxxx)
     for trying the Board results page and for the tests."""
     rnd = random.Random(seed)
@@ -187,11 +187,14 @@ def sample_gazette(cfg, seed=5, n=60):
             if name not in used:
                 used.add(name)
                 break
-        codes = list(combos[rnd.choice("AABCCDE")])
+        key = rnd.choice("AABCCDE")                     # the combination = the section in the made-up example
+        codes = list(combos[key])
         if rnd.random() < 0.25:
             codes.append("083" if "083" not in codes else "065")
         ability = rnd.gauss(0.78, 0.11)
         marks = [max(18, min(99, int(round(100 * (ability + rnd.gauss(0, 0.07)))))) for _ in codes]
+        if effects:                                     # made-up teacher effects: (section, subject code) -> marks
+            marks = [max(18, min(99, m + effects.get((key, c), 0))) for m, c in zip(marks, codes)]
         res = "PASS"
         if i in (17, 41):
             marks[2] = rnd.randint(20, 31)
@@ -311,6 +314,11 @@ EXAMPLE_TEACHERS = [
     ("Ms. Swati Agarwal", "Accountancy", "XII-C, XII-D"), ("Ms. Meera Iyer", "Political Science", "XII-E"),
     ("Ms. Rekha Pillai", "Psychology", "XII-E"),
 ]
+
+
+# made-up teacher effects for the full example, so every kind of teacher result shows up:
+# English D/E (Mr. Arjun Malhotra) +12, Physics B (Ms. Kiran Mehta) -8, Mathematics C (Ms. Pooja Arora) +14
+EXAMPLE_EFFECTS = {("D", "301"): 12, ("E", "301"): 12, ("B", "042"): -8, ("C", "041"): 14}
 
 
 def sample_board_analysis(cfg):

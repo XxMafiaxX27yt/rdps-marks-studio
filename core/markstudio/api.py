@@ -729,9 +729,9 @@ EXAMPLE_TEMPLATE = "Board analysis - made-up example.xlsx"
 def add_sample_board_full():
     """The whole made-up example: CBSE results for 60 made-up Class XII students + the filled-in Board analysis
     template (their sections, made-up teachers), so every tab - teachers too - can be tried."""
-    from .sample import sample_gazette
+    from .sample import sample_gazette, EXAMPLE_EFFECTS
     from .excel.board_template import board_template_bytes as make
-    S.project.add_file("Sample CBSE result (made-up).txt", sample_gazette(S.cfg).encode())
+    S.project.add_file("Sample CBSE result (made-up).txt", sample_gazette(S.cfg, effects=EXAMPLE_EFFECTS).encode())
     S.project.class_lists = [c for c in S.project.class_lists if c["file"] != EXAMPLE_TEMPLATE]
     S.project.add_any(EXAMPLE_TEMPLATE, make(S.cfg, example=True))
     _refresh_boards()
