@@ -415,6 +415,72 @@
     "file": "class-lists-3-e69b189bd0.mp3",
     "dur": 8.626
    }
+  ],
+  "pick-class": [
+   {
+    "file": "pick-class-0-31785d97c0.mp3",
+    "dur": 1.324
+   },
+   {
+    "file": "pick-class-1-70ec9f29a6.mp3",
+    "dur": 7.918
+   },
+   {
+    "file": "pick-class-2-63fe76c916.mp3",
+    "dur": 8.719
+   },
+   {
+    "file": "pick-class-3-b7994ce60b.mp3",
+    "dur": 10.182
+   },
+   {
+    "file": "pick-class-4-5252952c5b.mp3",
+    "dur": 5.201
+   }
+  ],
+  "type-marks": [
+   {
+    "file": "type-marks-0-ca22aad9e3.mp3",
+    "dur": 1.521
+   },
+   {
+    "file": "type-marks-1-7f96a3c547.mp3",
+    "dur": 8.673
+   },
+   {
+    "file": "type-marks-2-ff0a436d58.mp3",
+    "dur": 11.238
+   },
+   {
+    "file": "type-marks-3-43786faa27.mp3",
+    "dur": 9.067
+   },
+   {
+    "file": "type-marks-4-8998a86af5.mp3",
+    "dur": 7.036
+   }
+  ],
+  "paper-sheet": [
+   {
+    "file": "paper-sheet-0-66856678a6.mp3",
+    "dur": 1.544
+   },
+   {
+    "file": "paper-sheet-1-64448c067b.mp3",
+    "dur": 10.275
+   },
+   {
+    "file": "paper-sheet-2-a8a183707c.mp3",
+    "dur": 7.639
+   },
+   {
+    "file": "paper-sheet-3-b61bf7c859.mp3",
+    "dur": 6.827
+   },
+   {
+    "file": "paper-sheet-4-a841f0f9b9.mp3",
+    "dur": 9.3
+   }
   ]
  },
  "voice": "en_US-lessac-medium"

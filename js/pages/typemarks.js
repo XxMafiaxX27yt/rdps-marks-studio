@@ -5,6 +5,7 @@ import { S, LS, prefs, savePrefs } from "../state.js";
 import { $, $$, esc, toast, modal, download } from "../ui.js";
 import { syncTeachers } from "./teachers.js";
 import { sheetsHtml, readSheetPhoto } from "../sheetscan.js";
+import { qmark } from "../explain.js";
 
 const rerender = () => window.__render();
 let loading = "";
@@ -30,7 +31,7 @@ export function html() {
   const classes = Object.entries(S.settings.rules.classes);
   const set = t.setup && t.setup.cls === t.cls ? t.setup : null;
   const cols = columnsNow(t);
-  const head = `<div class="page-head"><div><h1>Type marks</h1>
+  const head = `<div class="page-head"><div><h1>Type marks ${qmark("type-marks")}</h1>
       <p>No file? Type the marks here. Pick the class, section, exam and your subject - the names are already filled in, you type only the marks.</p></div></div>`;
   const picks = `<div class="card type-picks"><div class="type-grid">
       <label class="field"><span>Class</span><select class="sel-sm" id="ty-cls"><option value="">Pick…</option>
@@ -79,7 +80,7 @@ function grid(t, cols) {
     </tr>`).join("");
   return `<div class="card"><div class="card-head"><h3>${esc(subjectName(t))} · ${esc(examName(t))} · ${esc(label(t.cls))}${t.section ? "-" + esc(t.section) : ""}</h3>
       <div class="row"><button class="btn btn-ghost btn-sm" id="ty-paste">Paste names</button><button class="btn btn-ghost btn-sm" id="ty-add">+ Add a student</button></div></div>
-    <div class="ty-paper"><span>📄 <b>Marks on paper?</b> Print this sheet with the names on it, write the marks by hand, then take a photo of it.</span>
+    <div class="ty-paper"><span>📄 <b>Marks on paper?</b> ${qmark("paper-sheet")} Print this sheet with the names on it, write the marks by hand, then take a photo of it.</span>
       <div class="row"><button class="btn btn-soft btn-sm" id="ty-print">🖨 Print the sheet</button>
         <label class="btn btn-soft btn-sm"><input type="file" id="ty-photo" accept="image/*" capture="environment" multiple hidden>📷 Read a photo of it</label></div></div>
     ${photoSummary(t)}
