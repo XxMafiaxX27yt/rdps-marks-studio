@@ -29,16 +29,17 @@ function askKind(name, why, hint) {
 }
 
 /** Adds one file. hint = the page it was dropped on ("school" / "board" / "class_list"), used only when the
- *  file itself could be either. onProgress(0..1) for PDFs and photos. -> the engine's answer, or null. */
-export async function addAny(file, { hint = "", onProgress } = {}) {
+ *  file itself could be either. cls = the class picked on the School page ("" = the file says).
+ *  onProgress(0..1) for PDFs and photos. -> the engine's answer, or null. */
+export async function addAny(file, { hint = "", cls = "", onProgress } = {}) {
   const low = file.name.toLowerCase();
   let pages = null, bytes = null;
   if (low.endsWith(".pdf")) pages = await readPdf(file, onProgress);
   else if (/\.(png|jpe?g|webp)$/.test(low)) pages = await readImage(file, onProgress);
   else bytes = new Uint8Array(await file.arrayBuffer());
   // the page it was dropped on is only shown as the likely answer - a file that could be either is always asked about
-  const send = (prefer) => pages ? engine.call("add_any_pages", file.name, JSON.stringify(pages), prefer, "")
-    : engine.call("add_any", file.name, bytes, prefer, "");
+  const send = (prefer) => pages ? engine.call("add_any_pages", file.name, JSON.stringify(pages), prefer, "", cls)
+    : engine.call("add_any", file.name, bytes, prefer, "", cls);
   let info = await send("");
   if (info.kind === "ask") {
     const choice = await askKind(file.name, info.why, hint === "board" ? "board_XII" : hint);

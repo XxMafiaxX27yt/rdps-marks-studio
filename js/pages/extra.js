@@ -47,7 +47,8 @@ export const help = {
       <div class="card"><h3>📂 What files work</h3><ul class="small">
         <li>Excel (.xlsx, .xlsm, old .xls) and CSV - any layout; the check screen shows what each column means.</li>
         <li>The CBSE result gazette (.TXT) - read automatically into Board results.</li>
-        <li>PDFs with text, and scanned or photographed <b>printed</b> sheets (read offline - check carefully). Handwriting is not supported.</li>
+        <li>PDFs with text, and scanned or photographed <b>printed</b> sheets (read offline - check carefully).</li>
+        <li>Handwritten marks only on the tool's own paper sheet (<b>Type marks → Print the sheet</b>, then <b>Read a photo of it</b>): one digit per box, and every mark is shown next to its picture to check.</li>
         <li>The tool's own template (recommended) and its own workbooks (to continue later).</li></ul></div>
       <div class="card"><h3>🧮 How results are worked out</h3><ul class="small">
         <li>Subject % = marks ÷ maximum × 100. Overall % = all marks ÷ all maximums.</li>

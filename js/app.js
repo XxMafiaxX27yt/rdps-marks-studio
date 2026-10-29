@@ -8,11 +8,12 @@ import * as ask from "./pages/ask.js";
 import * as settingsPage from "./pages/settings.js";
 import * as extra from "./pages/extra.js";
 import * as teachersPage from "./pages/teachers.js";
+import * as typePage from "./pages/typemarks.js";
 import * as explain from "./explain.js";
 import { startTour } from "./tour.js";
 import * as ai from "./ai.js";
 
-const PAGES = { school, board: boardPage, ask, teachers: teachersPage, template: extra.template, settings: settingsPage, help: explain.page };
+const PAGES = { school, type: typePage, board: boardPage, ask, teachers: teachersPage, template: extra.template, settings: settingsPage, help: explain.page };
 
 // ---------------------------------------------------------------- theme
 function applyTheme() {

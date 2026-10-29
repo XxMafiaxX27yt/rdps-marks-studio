@@ -13,6 +13,33 @@ export function fmt(v, places = 1) {
   if (typeof v !== "number") return esc(v);
   return v.toLocaleString("en-IN", { minimumFractionDigits: places, maximumFractionDigits: places });
 }
+// ---------------------------------------------------------------- differences in plain words
+// Teachers found "-5", "+3", "-0.4" confusing: a difference is written "▼ 5 marks lower", "▲ 3% higher" or
+// "≈ about the same" (under 1 either way - too small to mean anything).
+const size = (a) => { const r = Math.round(a * 10) / 10; return r >= 3 ? String(Math.round(r)) : fmt(r); };   // 5, 12, 1.6
+const howMuch = (a, unit) => `${size(a)}${unit === "%" ? "%" : " " + unit}`;
+export function gapText(v, { unit = "marks", higher = "higher", lower = "lower", than = "", arrow = false } = {}) {
+  if (v === null || v === undefined || Number.isNaN(v)) return "–";
+  const a = Math.abs(v);
+  const mark = !arrow ? "" : a < 1 ? "≈ " : v > 0 ? "▲ " : "▼ ";
+  if (a < 1) return mark + "about the same" + (than ? " as " + than : "");
+  return `${mark}${howMuch(a, unit)} ${v > 0 ? higher : lower}${than ? " than " + than : ""}`;
+}
+export function gapWords(v, opts = {}) {
+  if (v === null || v === undefined || Number.isNaN(v)) return "–";
+  const a = Math.abs(v);
+  return `<span class="gap ${a < 1 ? "same" : v > 0 ? "up" : "down"}">${esc(gapText(v, { ...opts, arrow: true }))}</span>`;
+}
+/** A likely range in words: "likely 1 to 6 marks higher", "likely between 2 lower and 6 higher". */
+export function rangeText(lo, hi, unit = "marks") {
+  if (lo === null || lo === undefined || hi === null || hi === undefined) return "";
+  const n = size;
+  const u = unit === "%" ? "%" : " " + unit;
+  if (lo >= 0) return `likely ${n(lo)} to ${n(hi)}${u} higher`;
+  if (hi <= 0) return `likely ${n(-hi)} to ${n(-lo)}${u} lower`;
+  return `likely between ${n(-lo)}${u} lower and ${n(hi)}${u} higher`;
+}
+
 export function fmtMark(v) {
   if (v === null || v === undefined || v === "") return "";
   if (typeof v === "number") return Number.isInteger(v) ? String(v) : String(Math.round(v * 100) / 100);

@@ -1,6 +1,6 @@
 // Printable report cards (one A4 page each) - the browser's "Save as PDF" makes the PDF.
 // Charts are drawn as SVG so they print sharp.
-import { esc, fmt, fmtMark } from "./ui.js";
+import { esc, fmt, fmtMark, gapText } from "./ui.js";
 
 const GENTLE_COL = { "Doing well": "#1E8E5A", "Focus area": "#B7791F", "Needs support": "#C0392B" };
 
@@ -125,14 +125,14 @@ export function printBoard(b, settings) {
     <div class="foot-note"><span>Best 5 % = English + the best four other subjects. Marks and grades exactly as in the CBSE file.</span><span>RDPS Marks Studio</span></div></section>`;
   const subs = b.subjects.map((s) => `<tr><td><b>${esc(s.name)}</b></td><td>${s.candidates}</td><td><b>${fmt(s.avg)}</b></td><td>${fmt(s.median)}</td>
     <td>${s.max ?? "–"}</td><td>${s.min ?? "–"}</td><td>${s.above90}</td><td>${s.centums || ""}</td><td>${s.failed || ""}</td>
-    <td>${m.graded ? fmt(s.pi) : "–"}</td><td>${s.vs_own === null ? "–" : (s.vs_own >= 0 ? "+" : "") + fmt(s.vs_own)}</td></tr>`).join("");
+    <td>${m.graded ? fmt(s.pi) : "–"}</td><td>${s.vs_own === null ? "–" : esc(gapText(s.vs_own, { arrow: true }))}</td></tr>`).join("");
   const toppers = b.subjects.filter((s) => s.max !== null).map((s) => `<tr><td><b>${esc(s.name)}</b></td><td><b>${s.max}</b></td><td>${esc(s.toppers.join(", "))}</td></tr>`).join("");
   const own = b.subjects.filter((s) => s.vs_own !== null && s.vs_own_n >= 3).sort((a, c) => c.vs_own - a.vs_own);
   const ownMax = Math.max(1, ...own.map((s) => Math.abs(s.vs_own)));
   const page2 = `<section class="pc">${head("Subjects")}
     <table style="margin-top:10px"><thead><tr><th>Subject</th><th>Students</th><th>Average</th><th>Middle</th><th>High</th><th>Low</th><th>90+</th><th>100s</th><th>Not passed</th><th>PI</th><th>vs own</th></tr></thead><tbody>${subs}</tbody></table>
     <div class="charts"><div><b style="font-size:9pt">Average marks by subject</b>${hbarSvg([...b.subjects].filter((s) => s.avg !== null).sort((a, c) => c.avg - a.avg).map((s) => ({ label: s.short, v: s.avg })))}</div>
-      <div><b style="font-size:9pt">Harder (−) or easier (+) for the same students</b>${hbarSvg(own.map((s) => ({ label: s.short, v: Math.abs(s.vs_own), text: (s.vs_own >= 0 ? "+" : "−") + fmt(Math.abs(s.vs_own)), color: s.vs_own >= 0 ? "#06A7E7" : "#F2A93B" })), ownMax * 1.15)}</div></div>
+      <div><b style="font-size:9pt">Harder (▼ lower) or easier (▲ higher) for the same students</b>${hbarSvg(own.map((s) => ({ label: s.short, v: Math.abs(s.vs_own), text: (s.vs_own >= 0 ? "▲ " : "▼ ") + fmt(Math.abs(s.vs_own)), color: s.vs_own >= 0 ? "#06A7E7" : "#F2A93B" })), ownMax * 1.15)}</div></div>
     <b style="font-size:9pt;display:block;margin-top:8px">Subject toppers</b>
     <table><thead><tr><th>Subject</th><th>Highest</th><th>Scored by</th></tr></thead><tbody>${toppers}</tbody></table>
     <div class="rem" style="margin-top:6px"><b>How to read this</b><ul><li>Middle = half the students scored more, half less.</li>
