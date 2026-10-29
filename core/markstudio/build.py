@@ -108,21 +108,22 @@ class Project:
     # ------------------------------------------------------------ any file: work out what it is
     KINDS = ("school", "board", "board_XII", "board_X", "class_list")
 
-    def add_any(self, name, data, prefer="", hint=""):
+    def add_any(self, name, data, prefer="", hint="", cls=""):
         """Any file, from any page. It is sorted into: board results (Class XII or X - CBSE's own file or the
         school's own list), a class list (names + sections, no marks) or school exam marks.
         prefer = the teacher's answer when the tool asked; hint = the page the file was dropped on (used only
-        when the file itself could be either)."""
+        when the file itself could be either); cls = the class picked on the School page before uploading."""
         sheets = readers.read_file(name, data)
         text = sheets[0].text if len(sheets) == 1 and getattr(sheets[0], "text", None) else ""
-        return self._add_any(name, sheets, text, prefer, hint)
+        return self._add_any(name, sheets, text, prefer, hint, cls=cls)
 
-    def add_any_pages(self, name, pages, prefer="", hint=""):
+    def add_any_pages(self, name, pages, prefer="", hint="", cls=""):
         sheets, text = readers.read_pages(name, pages)
-        info = self._add_any(name, sheets, text, prefer, hint, ocr=any(getattr(s, "ocr", False) for s in sheets))
+        info = self._add_any(name, sheets, text, prefer, hint, ocr=any(getattr(s, "ocr", False) for s in sheets),
+                             cls=cls)
         return info
 
-    def _add_any(self, name, sheets, text, prefer, hint, ocr=False):
+    def _add_any(self, name, sheets, text, prefer, hint, ocr=False, cls=""):
         if text and gazette.looks_like_gazette(text):
             g = gazette.parse(text, name)
             g.raw_text = text
@@ -150,9 +151,12 @@ class Project:
             return info
         if kind == "class_list":
             found = self._class_lists(name, sheets)
+            for c in found:
+                if cls and not c["cls"]:
+                    classlist.set_class(c, cls, c["section"])
             return {"kind": "class_list", "name": name, "lists": [{"cls": c["cls"], "section": c["section"],
                     "count": len(c["students"]), "needs": c["needs"]} for c in found]}
-        info = self._add_table(name, sheets, ocr=ocr)
+        info = self._add_table(name, sheets, ocr=ocr, cls=cls)
         info["kind"] = "school"
         return info
 
@@ -223,7 +227,7 @@ class Project:
             return {"kind": "gazette", "name": name, "students": len(g.students), "year": g.year}
         return self._add_table(name, sheets, ocr=any(getattr(s, "ocr", False) for s in sheets))
 
-    def _add_table(self, name, sheets, ocr=False):
+    def _add_table(self, name, sheets, ocr=False, cls=""):
         self._n += 1
         src = Source(f"F{self._n}", name, sheets, "scan" if ocr else "table")
         self.sources.append(src)
@@ -246,18 +250,174 @@ class Project:
                        "problems": [], "title": "", "exam_from": "", "cls_from": "", "max_row": None}
                 self.layouts[(src.id, sh.name)] = lay
                 continue
-            lay = detect(sh, name, self.cfg, self.vocab)
+            lay = detect(sh, name, self.cfg, self.vocab, default_cls=cls or None)
             sig = signature(sh, lay)
             lay["signature"] = sig
             if sig in self.remembered:
+                own = (lay["cls"], lay["cls_from"])
                 self._apply_saved(lay, self.remembered[sig])
+                if own[1] == "picked":
+                    lay["cls"], lay["cls_from"] = own      # the class picked for this upload beats last time's
             if ocr:
                 for c in lay["columns"]:
                     if c["role"] not in ("ignore",):
                         c["sure"] = False
                         c["why"] = (c["why"] + " " if c["why"] else "") + "(read from a scan - please check)"
+            if cls:
+                self._check_picked(sh, lay, cls)
             self.layouts[(src.id, sh.name)] = lay
-        return {"kind": "table", "id": src.id, "name": name, "sheets": [s.name for s in sheets]}
+        return {"kind": "table", "id": src.id, "name": name, "sheets": [s.name for s in sheets],
+                "clashes": [dict(self.layouts[(src.id, s.name)]["clash"], sheet=s.name) for s in sheets
+                            if self.layouts[(src.id, s.name)].get("clash")]}
+
+    def _check_picked(self, sh, lay, cls):
+        """The teacher picked the class before uploading. A sheet that looks like another class - its name or
+        title says so, its Class column has other classes, or it has subjects that class does not have - gets
+        a question on the check screen instead of being read as the picked class."""
+        lay["picked"] = cls
+        lay.pop("clash", None)
+        if lay["skip"] or lay.get("kind") == "info":
+            return
+        label = self.cfg.class_label
+        clash = None
+        if lay["cls"] and lay["cls"] != cls and lay.get("cls_from") != "picked":
+            clash = {"found": lay["cls"], "source": "title",
+                     "why": f"the {lay.get('cls_from') or 'file'} says {label(lay['cls'])}"}
+        if not clash:
+            seen = []
+            for c in lay["columns"]:
+                if c["role"] in ("class", "class_section"):
+                    for row in sh.rows[lay["data_start"]:]:
+                        cc = self.vocab.class_section(row[c["col"]] if c["col"] < len(row) else "")[0]
+                        if cc and cc not in seen:
+                            seen.append(cc)
+            if seen and cls not in seen:
+                clash = {"found": seen[0] if len(seen) == 1 else None, "source": "column", "seen": seen,
+                         "why": f"its class column says {', '.join(label(x) for x in seen)}"}
+        if not clash:
+            have = set(self.cfg.class_subject_codes(cls))
+            subs, odd = set(), []
+            for c in lay["columns"]:
+                s = self.cfg.resolve_subject(cls, c["subject"]) if c["role"] == "mark" and c["subject"] else None
+                if s and s != LANG_MARK:
+                    subs.add(s)
+                    if s not in have and s not in odd:
+                        odd.append(s)
+            if odd:
+                names = [self.cfg.subject_name(s) for s in odd]
+                fits = [k for k in self.cfg.classes if k != cls and subs <= set(self.cfg.class_subject_codes(k))]
+                clash = {"found": fits[0] if len(fits) == 1 else None, "source": "subjects", "fits": fits[:3],
+                         "why": f"{_words(names)} {'is not a' if len(odd) == 1 else 'are not'} {label(cls)} "
+                                f"subject{'' if len(odd) == 1 else 's'}"}
+        if clash:
+            clash["picked"] = cls
+            lay["clash"] = clash
+
+    # ------------------------------------------------------------ marks typed on the website
+    TYPED_ROLES = (("roll", "Roll No"), ("adm_no", "Admission No"), ("name", "Name"), ("section", "Section"))
+
+    def add_typed(self, d):
+        """Marks typed on the Type marks screen: one class and section, one exam, one subject (the parts the
+        teacher typed: written, practical, portfolio ...). Kept like an uploaded sheet whose columns are all known.
+        Students with nothing typed are left out (e.g. not taking this language); typing the same class, section,
+        exam and subject again replaces the earlier copy."""
+        cfg = self.cfg
+        cls, sec, exam, subj = d["cls"], (d.get("section") or "").strip().upper()[:3], d["exam"], d["subject"]
+        if cls not in cfg.classes or exam not in cfg.exams or subj not in cfg.subjects:
+            raise ValueError("Pick the class, exam and subject first.")
+        parts = [p for p in d["parts"] if p]
+        rows = [dict(r, section=clean(r.get("section", "")).upper() or sec) for r in d["rows"]
+                if any(clean(r.get("values", {}).get(p, "")) for p in parts)]
+        if not rows:
+            raise ValueError("No marks were typed.")
+        if any(not clean(r.get("name", "")) and not clean(r.get("roll", "")) and not clean(r.get("adm_no", "")) for r in rows):
+            raise ValueError("Every student with marks needs a name or a roll number.")
+        key = (cls, sec, exam, subj)
+        for old in [s for s in self.sources if getattr(s, "typed", None) and s.typed["key"] == key]:
+            self.remove_source(old.id)
+        heads = [h for _, h in self.TYPED_ROLES] + [f"{cfg.subject_name(subj)} {self.typed_part_label(p)}" for p in parts]
+        table = [heads] + [[clean(r.get(k, "")) for k, _ in self.TYPED_ROLES] + [clean(r["values"].get(p, "")) for p in parts]
+                           for r in rows]
+        sheet = readers.Sheet(cfg.exam_name(exam), table)
+        self._n += 1
+        title = f"{cfg.class_label(cls)}{'-' + sec if sec else ''} · {cfg.exam_name(exam)} · {cfg.subject_name(subj)}"
+        src = Source(f"F{self._n}", f"Typed: {title}", [sheet], "typed")
+        src.typed = {"key": key, "cls": cls, "section": sec, "exam": exam, "subject": subj, "parts": parts,
+                     "rows": [{k: clean(r.get(k, "")) for k, _ in self.TYPED_ROLES} | {"values": dict(r["values"])}
+                              for r in d["rows"]], "teacher": clean(d.get("teacher", ""))}
+        self.sources.append(src)
+        cols = [{"col": i, "header": h, "role": role, "subject": None, "component": None, "exam": None, "sure": True,
+                 "why": "Typed on the website", "sample": []} for i, (role, h) in enumerate(self.TYPED_ROLES)]
+        for i, p in enumerate(parts):
+            cols.append({"col": len(self.TYPED_ROLES) + i, "header": heads[len(self.TYPED_ROLES) + i], "role": "mark",
+                         "subject": subj, "component": p, "exam": exam, "sure": True, "why": "Typed on the website",
+                         "sample": []})
+        self.layouts[(src.id, sheet.name)] = {
+            "sheet": sheet.name, "header_rows": [0], "data_start": 1, "format": "wide", "exam": exam, "exam_from": "typed",
+            "cls": cls, "cls_from": "typed", "section": sec, "columns": cols, "skip": False, "note": "", "max_row": None,
+            "title": title, "kind": "marks", "signature": "", "needs_exam": False, "needs_class": False, "problems": []}
+        return {"kind": "school", "id": src.id, "name": src.name, "students": len(rows)}
+
+    def typed_part_label(self, part):
+        return {"theory": "Written", "practical": "Practical", "total": "Total", "pt5": "PT part", "portfolio": "Portfolio",
+                "project": "Project", "notebook": "Notebook", "viva": "Viva", "file": "Practical file",
+                "ptest": "Practical test"}.get(part, part)
+
+    def typed_columns(self, cls, exam, subject):
+        """What the Type marks screen offers for one subject in one exam: [(part, max, label, typed by default)]."""
+        cfg = self.cfg
+        sc = cfg.scheme(cls, subject, exam)
+        if not sc:
+            return []
+        out = [("theory", sc["theory"], "Written" if sc["second"] or cfg.exam_kind(exam) != "pt" else "Marks", True)]
+        sec = sc["second"]
+        if sec:
+            if sec["parts"]:
+                for key, mx in sec["parts"]:
+                    part = next((p for p, real in PART_KEYS.items() if key in real), None)
+                    if part and part != "pt5":            # the PT part is worked out from the periodic test
+                        out.append((part, mx, cfg.part_label(key), not sec["optional"]))
+            else:
+                out.append(("practical", sec["max"], sec["label"], not sec["optional"]))
+        return out
+
+    def roster(self, cls, section="", ds=None):
+        """Students of a class (and section) for the Type marks screen: from class lists, from marks typed or
+        uploaded so far (ds = the results already made, if any), in roll-number order."""
+        sec = (section or "").strip().upper()
+        found = {}
+
+        def put(name, roll="", adm="", s_cls="", s_sec=""):
+            if s_cls != cls or (sec and s_sec and s_sec != sec) or not clean(name):
+                return
+            key = ("a", adm) if adm else ("r", roll, norm_name(name)) if roll else ("n", norm_name(name))
+            for k, v in list(found.items()):
+                if (adm and v["adm_no"] == adm) or (not adm and norm_name(v["name"]) == norm_name(name)):
+                    key = k
+            have = found.setdefault(key, {"roll": "", "adm_no": "", "name": clean(name), "section": s_sec})
+            have["roll"] = have["roll"] or roll
+            have["adm_no"] = have["adm_no"] or adm
+            have["section"] = have["section"] or s_sec
+
+        for cl in self.class_lists:
+            for s in cl["students"]:
+                put(s["name"], s.get("roll") or "", s.get("adm_no") or "", s.get("cls") or "", s.get("section") or "")
+        for src in self.sources:
+            t = getattr(src, "typed", None)
+            if t:
+                for r in t["rows"]:
+                    put(r["name"], r["roll"], r["adm_no"], t["cls"], r.get("section") or t["section"])
+        if ds is None and any(not getattr(src, "typed", None) for src in self.sources):
+            try:
+                ds = self.build()
+            except Exception:
+                ds = None                           # files still waiting for answers on the check screen
+        for s in (ds.students.values() if ds else []):
+            put(s.name, s.roll or "", s.adm_no or "", s.cls or "", s.section or "")
+        def order(r):
+            n = parse_number(r["roll"])
+            return (r["section"], 0 if n is not None else 1, n or 0, norm_name(r["name"]))
+        return sorted(found.values(), key=order)
 
     def remove_source(self, source_id):
         self.sources = [s for s in self.sources if s.id != source_id]
@@ -291,12 +451,39 @@ class Project:
     # ------------------------------------------------------------ edits from the check screen
     def set_sheet(self, source_id, sheet, **kw):
         lay = self.layouts[(source_id, sheet)]
+        if kw.get("cls") and kw["cls"] != lay.get("cls") and lay.get("kind") != "info":
+            lay = self._reread_for_class(source_id, sheet, kw["cls"])
         for k, v in kw.items():
             if k in ("exam", "cls", "section", "skip"):
                 lay[k] = v or ("" if k == "section" else None if k != "skip" else False)
+            if k == "cls" and v:
+                lay.pop("clash", None)            # the teacher answered which class it is
+                lay["cls_from"] = "you"
         lay["needs_exam"] = (any(c["role"] == "mark" and not c["exam"] for c in lay["columns"])
                              and not lay["exam"] and not any(c["role"] == "row_exam" for c in lay["columns"]))
         lay["needs_class"] = not lay["cls"] and not any(c["role"] in ("class", "class_section") for c in lay["columns"])
+
+    def _reread_for_class(self, source_id, sheet, cls):
+        """The teacher said a sheet is another class: its columns are worked out again for that class (which
+        parts a subject has - written, practical, internal - depends on the class). Every column the teacher
+        set by hand, and the sheet's exam and section, are kept."""
+        src = next(s for s in self.sources if s.id == source_id)
+        sh = next(x for x in src.sheets if x.name == sheet)
+        old = self.layouts[(source_id, sheet)]
+        lay = detect(sh, src.name, self.cfg, self.vocab, force_cls=cls)
+        mine = {c["col"]: c for c in old["columns"] if c.get("why") in ("Set by you", "Swapped by you")
+                or (old.get("remembered") and c.get("why") == "Same as last time (remembered)")}
+        for c in lay["columns"]:
+            if c["col"] in mine:
+                c.update({k: mine[c["col"]][k] for k in ("role", "subject", "component", "exam", "sure", "why")})
+            elif src.kind == "scan" and c["role"] != "ignore":
+                c["sure"] = False
+                c["why"] = (c["why"] + " " if c["why"] else "") + "(read from a scan - please check)"
+        for k in ("exam", "exam_from", "section", "skip", "signature", "remembered", "picked"):
+            if k in old:
+                lay[k] = old[k]
+        self.layouts[(source_id, sheet)] = lay
+        return lay
 
     def set_column(self, source_id, sheet, col, role, subject=None, component=None, exam=None):
         lay = self.layouts[(source_id, sheet)]
@@ -342,6 +529,11 @@ class Project:
                 if lay.get("needs_class"):
                     out.append({"source": src.id, "sheet": sh.name, "what": "class",
                                 "text": f"{src.name} › {sh.name}: which class is this?"})
+                if lay.get("clash"):
+                    cl = lay["clash"]
+                    out.append({"source": src.id, "sheet": sh.name, "what": "class_clash",
+                                "text": f"{src.name} › {sh.name}: you picked {self.cfg.class_label(cl['picked'])}, "
+                                        f"but {cl['why']} - which class is it?"})
                 for c in lay["columns"]:
                     if not c["sure"]:
                         out.append({"source": src.id, "sheet": sh.name, "what": "column", "col": c["col"],
@@ -1049,6 +1241,12 @@ def part_word(cfg, cls, m):
     if c == "total":
         return "total"
     return cfg.part_label(c).lower()
+
+
+def _words(items):
+    """['Physics', 'Chemistry', 'Biology'] -> 'Physics, Chemistry and Biology'."""
+    items = list(items)
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
 
 
 def _same_name(a, b):

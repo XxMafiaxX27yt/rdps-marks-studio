@@ -288,8 +288,23 @@ def _distinct(row):
 
 
 # ---------------------------------------------------------------- main
-def detect(sheet, file_name, cfg, vocab=None):
-    """Propose a layout for one sheet."""
+def class_parts(cfg, cls):
+    """The kinds of marks column a class can have: written, total, and the practical / internal parts its
+    marks schemes use (none of the internal parts in XI-XII, no practical at all in a theory-only class)."""
+    found = {"theory", "total"}
+    for subj in cfg.class_subject_codes(cls):
+        for exam in cfg.class_exams(cls):
+            sc = cfg.scheme(cls, subj, exam)
+            if sc and sc["second"]:
+                found.add("practical")
+                for key, _ in sc["second"]["parts"]:
+                    found.update(p for p, real in PART_KEYS.items() if key in real)
+    return found
+
+
+def detect(sheet, file_name, cfg, vocab=None, default_cls=None, force_cls=None):
+    """Propose a layout for one sheet. default_cls = the class the teacher picked before uploading, used
+    when the sheet itself does not say its class; force_cls = the class the teacher said it is."""
     vocab = vocab or Vocab(cfg)
     rows = sheet.rows
     lay = {"sheet": sheet.name, "header_rows": [], "data_start": 0, "format": "wide",
@@ -371,6 +386,10 @@ def detect(sheet, file_name, cfg, vocab=None):
             cl = vocab.find_class(text) if src == "sheet name" else _class_in_title(text, vocab)
             if cl:
                 lay["cls"], lay["cls_from"] = cl, src
+    if force_cls:
+        lay["cls"], lay["cls_from"] = force_cls, "you"
+    elif not lay["cls"] and default_cls:
+        lay["cls"], lay["cls_from"] = default_cls, "picked"
     if not lay["section"]:
         # "XI-A", "6th / B" (a dash or slash is needed), or "Class 9 C"
         low = (clean(title_text) + " " + clean(sheet.name)).lower()

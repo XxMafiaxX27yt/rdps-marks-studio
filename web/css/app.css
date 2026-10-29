@@ -728,3 +728,26 @@ table.t td.wrap { white-space: normal; min-width: 260px; }
 .tpl-preview summary::-webkit-details-marker { display: none; }
 .tpl-preview summary::before { content: "▸ "; color: var(--blue); }
 .tpl-preview[open] summary::before { content: "▾ "; }
+
+/* Type marks */
+.type-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 14px; }
+.type-grid .field { margin: 0; }
+.ty-table td { padding: 4px 8px; vertical-align: middle; }
+.ty-table input { font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--card); color: var(--text); }
+.ty-table input.mk { width: 84px; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.ty-table input:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 22%, transparent); }
+.ty-table input.mk.ok { border-color: color-mix(in srgb, var(--green) 45%, var(--line-2)); }
+.ty-table input.mk.bad { border-color: var(--red); background: var(--red-bg); color: var(--red); }
+
+/* a difference in plain words: ▲ 5 marks higher / ▼ 3% lower / ≈ about the same */
+.gap { font-weight: 700; white-space: nowrap; }
+.gap.up { color: var(--green); } .gap.down { color: var(--amber); } .gap.same { color: var(--muted); font-weight: 500; }
+
+/* paper sheets: print + photo */
+.ty-paper { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; justify-content: space-between; padding: 10px 12px; margin: 0 0 12px; border-radius: 10px; background: var(--tint); font-size: .86rem; }
+.ty-read { margin: 0 0 12px; font-size: .86rem; } .ty-read > div { margin-top: 6px; }
+.ty-table td.ty-photo { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.ty-ph { height: 34px; border-radius: 6px; border: 1px solid var(--line-2); background: #fff; }
+.ty-ph.unsure, .ty-table input.mk.unsure { outline: 2px solid var(--amber); outline-offset: 1px; }
+.ms-page { page-break-after: always; break-after: page; }
+.ms-page:last-child { page-break-after: auto; break-after: auto; }

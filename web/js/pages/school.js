@@ -5,6 +5,7 @@ import { $, $$, esc, fmt, fmtMark, toast, modal, chart, countUp, download, XLSX,
          sevBadge, pctCell, table, PALETTE, LABEL_COLORS, cssVar } from "../ui.js";
 import { readPdf, readImage } from "../files.js";
 import { addAny } from "../intake.js";
+import { editTyped } from "./typemarks.js";
 import * as ai from "../ai.js";
 import { printCards } from "../report.js";
 import { qmark } from "../explain.js";
@@ -52,12 +53,23 @@ function stepper() {
 // ================================================================== 1. upload
 function upload() {
   const f = S.files || { files: [], gazettes: [] };
-  const list = f.files.map((x) => `
+  const list = f.files.map((x) => {
+    const clash = x.sheets.find((s) => s.clash && !s.skip);
+    const classes = [...new Set(x.sheets.filter((s) => s.cls && !s.skip && s.kind !== "info").map((s) => s.cls))];
+    if (x.typed) return `
+    <div class="file-row"><span class="ficon">⌨</span>
+      <div style="flex:1;min-width:0"><div class="fname">${esc(x.name.replace(/^Typed: /, ""))}</div>
+      <div class="tiny muted">typed here · ${x.typed.count} students${x.typed.teacher ? " · " + esc(x.typed.teacher) : ""}</div></div>
+      <span class="badge b-ok">Typed marks</span>
+      <button class="btn btn-ghost btn-sm" data-edittyped="${x.id}">Change</button>
+      <button class="btn btn-ghost btn-sm" data-remove="${x.id}">Remove</button></div>`;
+    return `
     <div class="file-row"><span class="ficon">${esc(ext(x.name))}</span>
       <div style="flex:1;min-width:0"><div class="fname">${esc(x.name)}</div>
-      <div class="tiny muted">${x.sheets.length} sheet${x.sheets.length !== 1 ? "s" : ""}${x.kind === "scan" ? " · read from a scan - please check carefully" : ""}</div></div>
-      <span class="badge b-ok">School marks</span>
-      <button class="btn btn-ghost btn-sm" data-remove="${x.id}">Remove</button></div>`).join("");
+      <div class="tiny muted">${x.sheets.length} sheet${x.sheets.length !== 1 ? "s" : ""}${x.kind === "scan" ? " · read from a scan - please check carefully" : ""}${clash ? ` · <span style="color:var(--amber)">you picked ${esc(classLabel(clash.clash.picked))}, but ${esc(clash.clash.why)}</span>` : ""}</div></div>
+      ${clash ? `<span class="badge b-weak">Which class?</span>` : `<span class="badge b-ok">School marks${classes.length === 1 ? " · " + esc(classLabel(classes[0])) : ""}</span>`}
+      <button class="btn btn-ghost btn-sm" data-remove="${x.id}">Remove</button></div>`;
+  }).join("");
   const gz = f.gazettes.map((g) => `
     <div class="file-row"><span class="ficon">BOARD</span>
       <div style="flex:1;min-width:0"><div class="fname">${esc(g.name)}</div>
@@ -73,6 +85,7 @@ function upload() {
   return `
   <div class="grid g3">
     <div class="span2 stack">
+      ${classPicker()}
       <label class="drop" id="drop">
         <input type="file" id="file-in" multiple accept=".xlsx,.xlsm,.xls,.csv,.txt,.tsv,.pdf,.png,.jpg,.jpeg,.webp">
         <div class="drop-icon"><svg viewBox="0 0 24 24"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg></div>
@@ -92,6 +105,11 @@ function upload() {
         <div class="row"><button class="btn btn-soft" id="sample">Sample data</button><button class="btn btn-ghost" id="sample-bad">Sample with mistakes</button></div>
       </div>
       <div class="card lift">
+        <h3>No file? Type the marks</h3>
+        <p class="muted small">Pick the class, section, exam and subject - the names are already there, you type only the marks.</p>
+        <a class="btn btn-soft" href="#/type">⌨ Type marks</a>
+      </div>
+      <div class="card lift">
         <h3>Continue an earlier workbook</h3>
         <p class="muted small">Open an Excel file made by this tool - marks you corrected in Excel are picked up.</p>
         <label class="btn btn-ghost"><input type="file" id="wb-in" accept=".xlsx,.xlsm" hidden>Open workbook…</label>
@@ -109,6 +127,47 @@ function upload() {
 
 function ext(n) { return (n.split(".").pop() || "").slice(0, 4).toUpperCase(); }
 
+function classLabel(c) { const x = S.settings && S.settings.rules.classes[c]; return x ? x.label : "Class " + c; }
+
+// The class is picked before the files: its own template, only its subjects on the check screen,
+// and a question when a file looks like another class.
+function classPicker() {
+  const cls = prefs.uploadClass || "";
+  const classes = S.settings ? Object.entries(S.settings.rules.classes) : [];
+  const info = cls && S.classInfo && S.classInfo.cls === cls ? S.classInfo : null;
+  let body = "";
+  if (!cls) {
+    body = `<p class="muted small" style="margin:8px 0 0">Pick the class first: you get that class's own template, only its subjects, and a warning if a file looks like another class.
+      Leave it on “Any class” for a file with several classes.</p>`;
+  } else if (info) {
+    const langs = new Set(info.languages);
+    const subs = info.subjects.filter((x) => !langs.has(x.name));
+    body = `<div class="rd-line" style="margin-top:12px"><b>Subjects</b>${subs.map((x) => `<span class="chip-s">${esc(x.name)}</span>`).join("")}
+        ${info.languages.length ? `<span class="muted small">+ one language: ${esc(info.languages.join(", "))}</span>` : ""}</div>
+      ${info.streams ? `<p class="tiny muted" style="margin:6px 0 0">Every stream's subjects (Science, Commerce, Humanities) - each student's own subjects come from the Students sheet.</p>` : ""}
+      <div class="rd-line small" style="margin-top:6px"><b>Exams</b><span class="muted">${esc(info.exams.map((e) => e.name).join(" · "))}</span></div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn btn-soft" data-tplcls="${esc(cls)}">⬇ ${esc(info.label)} template</button>
+        ${info.has_students ? `<button class="btn btn-ghost" data-tplcls="${esc(cls)}" data-prefill="1">With these students</button>` : ""}
+        <span class="tiny muted" style="flex:1;min-width:200px">Teachers type the marks in this template - it has only ${esc(info.label)} subjects and stops wrong marks while typing.</span></div>`;
+  }
+  return `<div class="card up-class">
+    <div class="row between" style="gap:12px">
+      <div><h3 style="margin:0">Which class are these marks for?</h3></div>
+      <select class="sel-sm" id="up-cls" style="width:auto;min-width:180px;font-weight:600">
+        <option value="" ${cls ? "" : "selected"}>Any class (the file says)</option>
+        ${classes.map(([c, v]) => `<option value="${esc(c)}" ${c === cls ? "selected" : ""}>${esc(v.label)}</option>`).join("")}
+      </select></div>
+    ${body}</div>`;
+}
+
+async function loadClassInfo() {
+  const cls = prefs.uploadClass || "";
+  if (!cls || (S.classInfo && S.classInfo.cls === cls)) return false;
+  S.classInfo = await engine.call("class_info", cls);
+  return true;
+}
+
 async function refreshState() { S.files = await engine.call("state"); }
 
 async function addFiles(fileList) {
@@ -120,7 +179,11 @@ async function addFiles(fileList) {
     rerender();
     const bar = (p) => { const b = $("#busy-bar"); if (b) b.style.width = Math.round(5 + p * 95) + "%"; };
     try {
-      const info = await addAny(file, { hint: "school", onProgress: bar });
+      const info = await addAny(file, { hint: "school", cls: prefs.uploadClass || "", onProgress: bar });
+      if (info && info.clashes && info.clashes.length) {
+        const c = info.clashes[0];
+        toast(`<b>${esc(file.name)}</b>: you picked ${esc(classLabel(c.picked))}, but ${esc(c.why)}. You will be asked which class it is in the next step.`, "warn", 9000);
+      }
       if (info && info.kind === "our_workbook") {
         busy = null;
         const ok = await confirmModal("This is a workbook made by RDPS Marks Studio",
@@ -223,6 +286,7 @@ function sheetSimple(f, sh, exams, classes, subjects) {
     `${rows} row${rows !== 1 ? "s" : ""}`,
   ].filter(Boolean);
   const qs = [];
+  if (sh.clash) qs.push(clashQuestion(key, sh.clash));
   if (sh.needs_exam) qs.push(`<div class="ask-q"><b>Which exam are these marks from?</b>
     <select class="sel-sm" data-sheet="${esc(key)}" data-k="exam">${opt(exams, sh.exam, "Pick the exam…")}</select></div>`);
   if (sh.needs_class) qs.push(`<div class="ask-q"><b>Which class is this?</b>
@@ -235,8 +299,8 @@ function sheetSimple(f, sh, exams, classes, subjects) {
         <div class="tiny muted">${(c.sample || []).length ? "e.g. " + esc(c.sample.slice(0, 4).join(" · ")) + " · " : ""}${esc(c.why || "")}</div>
         <div class="ai-sug" data-aisug="${esc(c.header)}"></div></div>
       <select class="sel-sm" data-col="${esc(key)}|${c.col}" data-k="role">${opt(ROLES, role, role ? undefined : "Pick…")}</select>
-      ${c.role === "mark" ? `<select class="sel-sm" data-col="${esc(key)}|${c.col}" data-k="subject">${opt(subjects, c.subject, "Which subject?")}</select>
-        <select class="sel-sm" data-col="${esc(key)}|${c.col}" data-k="component">${opt(PARTS, c.component || "theory")}</select>
+      ${c.role === "mark" ? `<select class="sel-sm" data-col="${esc(key)}|${c.col}" data-k="subject">${opt(subjectList(sh, c, subjects), c.subject, "Which subject?")}</select>
+        <select class="sel-sm" data-col="${esc(key)}|${c.col}" data-k="component">${opt(partList(sh, c), c.component || "theory")}</select>
         <input type="hidden" data-col="${esc(key)}|${c.col}" data-k="exam" value="${esc(c.exam || "")}">` : ""}
     </div>`);
   }
@@ -254,6 +318,34 @@ function sheetSimple(f, sh, exams, classes, subjects) {
       <label class="toggle small"><input type="checkbox" data-skip="${f.id}|${esc(sh.name)}" checked><i></i>Use this sheet</label></div>
     <details class="rd-more" data-dkey="${esc(key)}" ${open}><summary>Change something (every column)</summary>${sheetCard(f, sh, exams, classes, subjects)}</details>
   </div>`;
+}
+
+const CLS_FROM = { picked: "the class you picked", you: "set by you" };
+
+// only the subjects and kinds of marks the sheet's class has (plus whatever the column already says)
+function subjectList(sh, c, subjects) {
+  const lang = c.subject === "@LANG" || (sh.subject_choices && sh.cls && !S.settings.rules.classes[sh.cls]?.streams);
+  const list = sh.subject_choices ? subjects.filter(([k]) => sh.subject_choices.includes(k) || k === c.subject) : subjects;
+  return lang ? [...list, ["@LANG", "Language (each student's own)"]] : list;
+}
+function partList(sh, c) {
+  return sh.part_choices ? PARTS.filter(([k]) => sh.part_choices.includes(k) || k === (c.component || "theory")) : PARTS;
+}
+
+// "You picked Class X, but the title says Class IX" - the teacher says which class it is, or leaves the sheet out
+function clashQuestion(key, cl) {
+  const opts = [];
+  if (cl.source === "column") {
+    opts.push([cl.seen[0], cl.seen.length > 1 ? "Use its class column" : `It is ${classLabel(cl.seen[0])}`]);
+  } else {
+    if (cl.source === "title" && cl.found) opts.push([cl.found, `${classLabel(cl.found)} (as the file says)`]);
+    for (const c of cl.fits || []) opts.push([c, classLabel(c)]);
+    opts.push([cl.picked, `${classLabel(cl.picked)} (as you picked)`]);
+  }
+  return `<div class="ask-q"><div style="flex:1;min-width:220px"><b>Is this really ${esc(classLabel(cl.picked))}?</b>
+      <div class="tiny muted">You picked ${esc(classLabel(cl.picked))}, but ${esc(cl.why)}.</div></div>
+    <div class="row" style="gap:6px">${opts.map(([c, l]) => `<button class="btn btn-soft btn-sm" data-setcls="${esc(key)}|${esc(c)}">${esc(l)}</button>`).join("")}
+      <button class="btn btn-ghost btn-sm" data-skipsheet="${esc(key)}">Don't use this sheet</button></div></div>`;
 }
 
 function opt(list, val, blank) {
@@ -277,23 +369,23 @@ function sheetCard(f, sh, exams, classes, subjects) {
       ${sh.exam_from ? `<span class="tiny muted">found in ${esc(sh.exam_from)}</span>` : ""}</label>` : ""}
     <label class="field" style="width:150px"><span>Class ${sh.needs_class ? "⚠" : ""}</span>
       <select class="sel-sm" data-sheet="${esc(key)}" data-k="cls">${opt(classes.map((c) => [c, c]), sh.cls, "— from a column —")}</select>
-      ${sh.cls_from ? `<span class="tiny muted">found in ${esc(sh.cls_from)}</span>` : ""}</label>
+      ${sh.cls_from ? `<span class="tiny muted">${esc(CLS_FROM[sh.cls_from] || "found in " + sh.cls_from)}</span>` : ""}</label>
     <label class="field" style="width:120px"><span>Section</span>
       <input class="sel-sm" type="text" maxlength="3" value="${esc(sh.section || "")}" data-sheet="${esc(key)}" data-k="section" placeholder="column"></label>
     <div style="flex:1"></div>
     <button class="btn btn-soft btn-sm" data-confirm="${esc(key)}">Looks right ✓</button></div>`;
   const cols = sh.columns.filter((c) => !(c.role === "ignore" && !c.header && !(c.sample || []).length));
-  const grid = cols.map((c) => colBox(key, c, exams, subjects)).join("");
+  const grid = cols.map((c) => colBox(key, c, exams, subjects, sh)).join("");
   return `<div class="sheet-card">${head}<div class="sheet-body">${sheetSel}<div class="map-grid">${grid}</div>
     <details style="margin-top:10px"><summary class="small muted" style="cursor:pointer">Show the first rows of this sheet</summary>${previewGrid(sh)}</details></div></div>`;
 }
 
-function colBox(key, c, exams, subjects) {
+function colBox(key, c, exams, subjects, sh) {
   const role = c.role === "unknown" ? "" : c.role;
   const markSel = c.role === "mark" ? `
-    <select class="sel-sm" data-col="${esc(key)}|${c.col}" data-k="subject">${opt(subjects, c.subject, "Which subject?")}</select>
+    <select class="sel-sm" data-col="${esc(key)}|${c.col}" data-k="subject">${opt(subjectList(sh, c, subjects), c.subject, "Which subject?")}</select>
     <div class="row" style="gap:6px;margin-top:5px">
-      <select class="sel-sm" style="flex:1" data-col="${esc(key)}|${c.col}" data-k="component">${opt(PARTS, c.component || "theory")}</select>
+      <select class="sel-sm" style="flex:1" data-col="${esc(key)}|${c.col}" data-k="component">${opt(partList(sh, c), c.component || "theory")}</select>
       <select class="sel-sm" style="flex:1" data-col="${esc(key)}|${c.col}" data-k="exam">${opt(exams, c.exam, "Sheet's exam")}</select></div>` : "";
   return `<div class="map-col ${c.sure ? "" : "unsure"} ${c.role === "ignore" ? "ign" : ""}" data-colbox="${esc(key)}|${c.col}">
     <div class="h" title="${esc(c.header)}">${esc(c.header || "(no heading)")}</div>
@@ -670,6 +762,7 @@ export function mount(root) {
   cmd && cmd.addEventListener("keydown", (e) => { if (e.key === "Enter" && cmd.value.trim()) previewCommand(cmd.value.trim()); });
   if (S.step === 3) loadTab();
   if (S.step === 2) aiSuggestions();
+  if (S.step === 1) loadClassInfo().then((changed) => changed && rerender()).catch(() => {});
 }
 
 async function aiSuggestions() {
@@ -702,6 +795,29 @@ async function onClick(e) {
     if (d.remove) { S.files = await engine.call("remove_file", d.remove); S.summary = null; rerender(); return; }
     if (d.cldel) { S.classLists = await engine.call("remove_class_list", d.cldel); await refreshState(); rerender(); return; }
     if (t.id === "compare") return compareModal();
+    if (d.edittyped) return editTyped(d.edittyped);
+    if (d.setcls) {
+      // the same answer goes to every sheet of that file with the same question (a file has one sheet per exam)
+      const [src, sheet, cls] = splitKey(d.setcls, 3);
+      const f = S.files.files.find((x) => x.id === src);
+      const me = f.sheets.find((x) => x.name === sheet).clash;
+      const same = f.sheets.filter((x) => x.clash && !x.skip && x.clash.source === me.source && x.clash.found === me.found);
+      for (const x of same.length ? same : [{ name: sheet }]) S.files = await engine.call("set_sheet", src, x.name, JSON.stringify({ cls }));
+      S.summary = null;
+      toast(`${same.length > 1 ? same.length + " sheets" : "The sheet"} will be read as ${esc(classLabel(cls))} ✓`, "ok", 2500);
+      rerender(); return;
+    }
+    if (d.skipsheet) {
+      const [src, sheet] = splitKey(d.skipsheet);
+      S.files = await engine.call("set_sheet", src, sheet, JSON.stringify({ skip: true }));
+      S.summary = null; rerender(); return;
+    }
+    if (d.tplcls) {
+      const bytes = await engine.bytes("template_bytes", d.tplcls, !!d.prefill);
+      download(bytes, `RDPS marks template - ${classLabel(d.tplcls)}${d.prefill ? " (with students)" : ""}.xlsx`, XLSX);
+      toast("Template downloaded ✓", "ok");
+      return;
+    }
     if (d.confirm) { const [src, sheet] = splitKey(d.confirm); S.files = await engine.call("confirm_sheet", src, sheet); LS.set("rdps.remembered", await engine.call("remember_json")); toast("Confirmed ✓ - remembered for next time", "ok", 2000); rerender(); return; }
     if (t.id === "analyze") return analyze();
     if (d.filter) { S.issuesFilter = d.filter; rerender(); return; }
@@ -780,6 +896,10 @@ async function onChange(e) {
       const payload = { role, subject: get("subject"), component: get("component") || "theory", exam: get("exam") };
       S.files = await engine.call("set_column", src, sheet, +col, JSON.stringify(payload));
       S.summary = null; rerender(); return;
+    }
+    if (t.id === "up-cls") {
+      prefs.uploadClass = t.value; savePrefs();
+      await loadClassInfo(); rerender(); return;
     }
     if (t.id === "v-cls") { S.view.cls = t.value; S.view.combo = ""; pickView(); rerender(); return; }
     if (t.id === "v-combo") { S.view.combo = t.value; rerender(); return; }

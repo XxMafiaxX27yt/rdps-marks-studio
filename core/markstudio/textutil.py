@@ -1,6 +1,7 @@
 """Small text helpers: cleaning words, fuzzy matching, reading numbers safely."""
 import re
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from functools import lru_cache
 
 _SPACES = re.compile(r"\s+")
 
@@ -85,6 +86,7 @@ def jaro_winkler(a, b):
     return jaro + prefix * 0.1 * (1 - jaro)
 
 
+@lru_cache(maxsize=300000)          # the same word pairs come up again and again (every name, every question)
 def similar(a, b):
     """Typo-tolerant word equality. Short words must match exactly."""
     if a == b:

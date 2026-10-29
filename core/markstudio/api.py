@@ -10,6 +10,7 @@ import traceback
 
 from .config import Config, default_settings
 from .build import Project, Builder
+from .layout import class_parts
 from . import calc, verify, views, gazette, board, snapshot
 from .nlu import Understander
 from .query import Engine, QueryError
@@ -175,8 +176,9 @@ def add_sample(mistakes=False):
 
 
 @safe
-def add_any(name, data, prefer="", hint=""):
-    """Any file from any page: sorted into board results (XII / X), a class list or school marks."""
+def add_any(name, data, prefer="", hint="", cls=""):
+    """Any file from any page: sorted into board results (XII / X), a class list or school marks.
+    cls = the class picked on the School page before uploading ('' = the file says)."""
     data = bytes(data)
     if data[:2] == b"PK" and name.lower().endswith((".xlsx", ".xlsm")) and not prefer:
         try:
@@ -187,12 +189,12 @@ def add_any(name, data, prefer="", hint=""):
                 return {"kind": "our_workbook", "name": name}
         except Exception:
             pass
-    return _after_any(S.project.add_any(name, data, prefer, hint))
+    return _after_any(S.project.add_any(name, data, prefer, hint, cls or ""))
 
 
 @safe
-def add_any_pages(name, pages_json, prefer="", hint=""):
-    return _after_any(S.project.add_any_pages(name, json.loads(pages_json), prefer, hint))
+def add_any_pages(name, pages_json, prefer="", hint="", cls=""):
+    return _after_any(S.project.add_any_pages(name, json.loads(pages_json), prefer, hint, cls or ""))
 
 
 def _after_any(info):
@@ -313,8 +315,15 @@ def state_dict():
                 "columns": [{k: c.get(k) for k in ("col", "header", "role", "subject", "component", "exam", "sure", "why", "sample")}
                             for c in lay["columns"]],
                 "preview": preview, "ocr": getattr(sh, "ocr", False),
+                "picked": lay.get("picked", ""), "clash": lay.get("clash"),
+                "subject_choices": S.cfg.class_subject_codes(lay["cls"]) if lay.get("cls") in S.cfg.classes else None,
+                "part_choices": sorted(class_parts(S.cfg, lay["cls"])) if lay.get("cls") in S.cfg.classes else None,
             })
-        files.append({"id": src.id, "name": src.name, "kind": src.kind, "sheets": sheets})
+        t = getattr(src, "typed", None)
+        files.append({"id": src.id, "name": src.name, "kind": src.kind, "sheets": sheets,
+                      "typed": {k: t[k] for k in ("cls", "section", "exam", "subject", "teacher")} | {
+                          "count": sum(1 for r in t["rows"] if any(str(v).strip() for v in r["values"].values()))}
+                      if t else None})
     gz = [{"id": f"G{i}", "name": g.file, "year": g.year, "cls": g.cls, "students": len(g.students),
            "school": g.school_name, "errors": sum(1 for x in g.issues if x.severity == "error"),
            "what": getattr(g, "kind", "gazette")}
@@ -329,6 +338,61 @@ def state_dict():
 @safe
 def state():
     return state_dict()
+
+
+@safe
+def type_setup(cls, section=""):
+    """The Type marks screen for one class: its exams and subjects, what can be typed for each subject in each
+    exam (with the maximum marks), and the students of the section in roll-number order."""
+    cfg = S.cfg
+    if cls not in cfg.classes:
+        return None
+    p = S.project
+    cols = {}
+    for e in cfg.class_exams(cls):
+        for subj in cfg.class_subject_codes(cls):
+            cols[f"{e}|{subj}"] = [{"part": part, "max": mx, "label": label, "on": on}
+                                   for part, mx, label, on in p.typed_columns(cls, e, subj)]
+    sections = sorted({s["section"] for cl in p.class_lists for s in cl["students"] if s.get("cls") == cls and s.get("section")}
+                      | {s.section for s in (S.ds.students.values() if S.ds else []) if s.cls == cls and s.section}
+                      | {getattr(src, "typed")["section"] for src in p.sources
+                         if getattr(src, "typed", None) and src.typed["cls"] == cls and src.typed["section"]})
+    return {"cls": cls, "label": cfg.class_label(cls), "sections": sections,
+            "exams": [{"code": e, "name": cfg.exam_name(e)} for e in cfg.class_exams(cls)],
+            "subjects": [{"code": c, "name": cfg.subject_name(c)} for c in cfg.class_subject_codes(cls)],
+            "columns": cols, "students": p.roster(cls, section, S.ds),
+            "leave_codes": [x["code"] for x in cfg.rules["leave_codes"]]}
+
+
+@safe
+def add_typed(js):
+    info = S.project.add_typed(json.loads(js))
+    _leave_restored()
+    S.ds = S.res = None
+    return info
+
+
+@safe
+def typed_get(source_id):
+    """The marks typed earlier for one class / exam / subject, to change them on the Type marks screen."""
+    src = next((s for s in S.project.sources if s.id == source_id and getattr(s, "typed", None)), None)
+    if not src:
+        raise ValueError("That typed sheet is not here any more.")
+    t = src.typed
+    return {k: t[k] for k in ("cls", "section", "exam", "subject", "parts", "rows", "teacher")}
+
+
+@safe
+def class_info(cls):
+    """What one class has, for the class picked on the School page: its subjects, exams and streams."""
+    cfg = S.cfg
+    if cls not in cfg.classes:
+        return None
+    return {"cls": cls, "label": cfg.class_label(cls), "streams": cfg.has_streams(cls),
+            "subjects": [{"code": c, "name": cfg.subject_name(c)} for c in cfg.class_subject_codes(cls)],
+            "languages": [cfg.subject_name(c) for c in cfg.languages_for(cls)],
+            "exams": [{"code": e, "name": cfg.exam_name(e)} for e in cfg.class_exams(cls)],
+            "has_students": bool(S.ds and any(s.cls == cls for s in S.ds.students.values()))}
 
 
 @safe
@@ -747,11 +811,23 @@ def board_workbook_name(cls="", key=""):
 
 
 # ================================================================== ask + commands
+_UND = {"key": None, "u": None}
+
+
+def understander():
+    """The question reader, made again only when the marks, board results, teachers or settings change."""
+    t = all_teachers()
+    k = (id(S.ds), id(S.res), tuple(id(b) for b in S.boards), id(S.cfg), json.dumps(t, sort_keys=True, default=str))
+    if _UND["key"] != k:
+        _UND["key"], _UND["u"] = k, Understander(S.ds, S.res, S.boards, S.cfg, teachers=t)
+    return _UND["u"]
+
+
 @safe
 def ask(question, hints_json="", force_json=""):
     hints = json.loads(hints_json) if hints_json else None
     force = json.loads(force_json) if force_json else None
-    U = Understander(S.ds, S.res, S.boards, S.cfg, teachers=all_teachers())
+    U = understander()
     parsed = U.parse(question, hints, force)
     if "query" not in parsed:
         return parsed

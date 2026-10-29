@@ -37,7 +37,8 @@ STRONG = ["strong", "good at", "good in", "better in", "achha in", "accha in", "
           "great at", "strongest", "achhe", "acche", "high scorers", "high marks", "scoring high", "bright students", "aage"]
 ATTENTION = ["needs attention", "need attention", "attention", "needs help", "need help", "at risk", "concern", "critical",
              "needs support", "need support", "help needed"]
-FAIL = ["fail", "failed", "failing", "not passed", "did not pass", "didn't pass", "below pass", "below the pass", "flunk",
+FAIL = ["fail", "failed", "failing", "not passed", "did not pass", "didn't pass", "didnt pass", "not pass", "could not pass",
+        "couldn't pass", "pass nahi", "pass nhi", "pass nahin", "nahi pass", "nhi pass", "below pass", "below the pass", "flunk",
         "flunked", "flunking", "fail hue", "fail hua", "fail ho"]
 PASSW = ["passed"]
 ABSENT = ["absent", "missed", "gair hazir", "did not appear", "didn't appear"]
@@ -46,8 +47,10 @@ LEAVE = ["medical", "leave", "on leave", "ml", "duty leave"]
 
 _CT = r"(?P<c>xii|xi|x|ix|viii|vii|vi|v|iv|iii|ii|i|12|11|10|[1-9])"
 CLASS_PATTERNS = [
-    # class 6 / class xii b / std 9-c / grade 10
-    r"\b(?:class|std|standard|cls|grade|kaksha)\s*" + _CT + r"(?:st|nd|rd|th)?(?:\s*[-/ ]?\s*(?P<s>[a-h])\b)?(?![0-9])",
+    # class 6 / class xii b / std 9-c / grade 10 / class-6 (the class must end there: "class is", "standard in" are not class I)
+    r"\b(?:class|std|standard|cls|grade|kaksha)\s*[-.:]?\s*" + _CT + r"(?:st|nd|rd|th)?(?![a-z0-9])(?:\s*[-/ ]?\s*(?P<s>[a-h])\b)?",
+    # 6 class, 12th class, x class
+    r"\b(?P<c>12|11|10|[1-9]|xii|xi|x|ix|viii|vii|vi|v|iv|iii|ii)(?:st|nd|rd|th)?\s*-?\s*(?:class|std|kaksha)\b(?:\s*[-/ ]?\s*(?P<s>[a-h])\b)?",
     # 10th, 6th-b, 12th c
     r"\b(?P<c>12|11|10|[1-9])(?:st|nd|rd|th)\b(?:\s*[-/ ]?\s*(?P<s>[a-h])\b)?",
     # 11a, 6-b, 10/c, xi-a, vi b
@@ -59,6 +62,20 @@ CLASS_PATTERNS = [
     r"\b(?P<c>xii|xi|ix|viii|vii|vi|iv)\b",
 ]
 _ROMANS = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"]
+
+
+NUM_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+             "eleven": 11, "twelve": 12, "fifteen": 15, "twenty": 20, "ek": 1, "teen": 3, "char": 4, "chaar": 4,
+             "paanch": 5, "panch": 5, "das": 10}
+_NUM = r"(\d{1,3}|" + "|".join(NUM_WORDS) + r")"
+
+
+_NOT_CLASS = r"(?<!class )(?<!class-)(?<!std )(?<!grade )(?<!kaksha )\b"
+# short misspellings the general typo check (5+ letters) does not catch
+SHORT_TYPOS = {"thn": "than", "abv": "above", "blw": "below", "avrg": "average", "avg": "average", "ave": "average",
+               "avr": "average", "aver": "average", "avre": "average", "pct": "percentage", "sect": "section",
+               "sctn": "section", "secs": "sections", "ech": "each", "eech": "each", "subj": "subject", "subjs": "subjects",
+               "sub": "subject", "subs": "subjects"}
 
 
 def to_class(tok):
@@ -77,6 +94,20 @@ GRADES_RE = r"\b(a1|a2|b1|b2|c1|c2|d1|d2)\b"
 SUMMARY = ["result of", "results of", "summary", "overview", "performance of", "how is", "how are", "how did", "performing",
            "doing", "report of class", "class report", "overall result", "kaisa", "kaise", "kaisi", "ka result", "ki result",
            "result kya", "perform"]
+# "above / below the class average": not a condition the engine has (Ask says so rather than guess)
+VS_AVERAGE = ["above average", "below average", "above the average", "below the average", "average se upar",
+              "average se neeche", "average se zyada", "average se kam", "avg se upar", "avg se kam", "than average",
+              "than the average"]
+# the words that decide what kind of question it is; a misspelling of one of these is read as the word
+CORE_WORDS = ["average", "percentage", "percent", "highest", "lowest", "toppers", "topper", "compare", "improved",
+              "dropped", "absent", "distribution", "hardest", "easiest", "toughest", "weakest", "strongest", "failed",
+              "summary", "result", "results", "section", "students", "subject", "subjects", "marks", "maximum",
+              "minimum", "attention", "struggling"]
+# "who is the best" / "kaun hai" / "kiske": one student; "students", "kaun hain", "toppers": a list
+SINGLE = ["kaun hai", "kon hai", "kaun h", "kiske", "kiska", "kiski", "kisne", "who is the", "who has the", "who got the",
+          "which student", "who scored the", "who is first"]
+PLURAL = ["students", "bacche", "bachhe", "bache", "kids", "toppers", "kaun hain", "kon hain", "who are", "list", "names",
+          "log", "wale"]
 TEACHER_WORDS = ["teacher", "teachers", "teacher wise", "teacherwise", "sir", "maam", "ma'am", "madam", "mr", "mrs", "ms",
                  "faculty", "teaching", "taught", "teaches"]
 
@@ -107,31 +138,53 @@ class Understander:
         self.subject_words = set()
         for ph in self.vocab.subject_phrases:
             self.subject_words.update(ph.split())
+        # words never "corrected": names, subjects, and every word of the keywords and examples
+        self._known = set(STOP) | self.subject_words | {t for _, toks in self._names for t in toks}
+        for i in self.intents["intents"]:
+            for ph in i["keywords"] + i["examples"]:
+                self._known.update(re.findall(r"[a-z]+", ph.lower()))
+        for words in (WEAK, STRONG, ATTENTION, FAIL, ABSENT, SUMMARY, TEACHER_WORDS):
+            for ph in words:
+                self._known.update(re.findall(r"[a-z]+", ph))
+
+    def _fix_typos(self, low):
+        out = []
+        for tok in re.findall(r"[a-z]+|[^a-z]+", low):
+            if tok in SHORT_TYPOS and tok not in self._known:
+                tok = SHORT_TYPOS[tok]
+            elif tok.isalpha() and len(tok) >= 5 and tok not in self._known:
+                tok = next((w for w in CORE_WORDS if similar(tok, w)), tok)
+            out.append(tok)
+        return "".join(out)
 
     # ============================================================ entities
     def entities(self, text):
         raw = text.strip()
-        low = raw.lower().replace("’", "'")
+        low = self._fix_typos(raw.lower().replace("’", "'"))
         e = {"raw": raw, "low": low, "n": None, "conds": [], "subjects": [], "students": [], "student_amb": [],
              "classes": [], "sections": [], "groups": [], "exams": [], "genders": [], "by": None, "rolls": [],
              "board_rolls": [], "used": set(), "combos": [], "teachers": [], "grades": []}
         work = low
         # numbers for "top 5", "best 10", "5 toppers"
-        m = re.search(r"\b(top|best|first|highest|bottom|lowest|last|worst|least)\s+(\d{1,3})\b", work) or \
-            re.search(r"(?<!class )(?<!std )(?<!grade )(?<!kaksha )\b(\d{1,3})\s+(toppers|top|best|students|bachhe|bacche|kids|names)\b",
-                      work)
+        # ("top five", "paanch toppers": numbers in words too)
+        m = re.search(r"\b(top|best|first|highest|bottom|lowest|last|worst|least)\s+" + _NUM + r"\b", work) or \
+            re.search(r"(?<!class )(?<!std )(?<!grade )(?<!kaksha )\b" + _NUM + r"\s+(toppers|top|best|students|bachhe|bacche|kids|names|"
+                      r"worst|lowest|bottom|weakest|last|highest|scorers)\b", work)
         if m:
-            num = m.group(2) if m.group(2).isdigit() else m.group(1)
-            e["n"] = int(num)
-            work = work.replace(m.group(0), " " + (m.group(1) if not m.group(1).isdigit() else m.group(2)) + " ")
+            numg = 2 if m.group(2).isdigit() or m.group(2) in NUM_WORDS else 1
+            num = m.group(numg)
+            e["n"] = int(num) if num.isdigit() else NUM_WORDS[num]
+            work = work.replace(m.group(0), " " + m.group(3 - numg) + " ")
         # thresholds
         thr = [(r"\bbetween\s+(\d{1,3}(?:\.\d+)?)\s*%?\s*(?:and|to|-)\s*(\d{1,3}(?:\.\d+)?)", "between"),
                (r"(?:at most|not more than|up to|upto|<=)\s*(\d{1,3}(?:\.\d+)?)\s*%?", "<="),
                (r"(?:at least|not less than|minimum of|>=)\s*(\d{1,3}(?:\.\d+)?)\s*%?", ">="),
-               (r"(?:below|under|less than|lower than|beneath|<|kam|neeche|se kam)\s*(\d{1,3}(?:\.\d+)?)\s*%?", "<"),
-               (r"(?:above|over|more than|greater than|higher than|>|zyada|upar|se zyada|se jyada)\s*(\d{1,3}(?:\.\d+)?)\s*%?", ">"),
-               (r"(\d{1,3}(?:\.\d+)?)\s*%?\s*(?:se kam|or less|and below|or below)", "<="),
-               (r"(\d{1,3}(?:\.\d+)?)\s*%?\s*(?:se zyada|se jyada|or more|and above|or above|plus|\+)", ">=")]
+               (r"(?:below|under|less than|lower than|beneath|<|kam|neeche|se kam|\bless)\s*(\d{1,3}(?:\.\d+)?)\s*%?", "<"),
+               (r"(?:above|over|more than|greater than|higher than|>|zyada|upar|se zyada|se jyada|\bmore)\s*(\d{1,3}(?:\.\d+)?)\s*%?", ">"),
+               (_NOT_CLASS + r"(\d{1,3}(?:\.\d+)?)\s*%?\s*(?:se kam|se kum|se neeche|se niche)\b", "<"),
+               (_NOT_CLASS + r"(\d{1,3}(?:\.\d+)?)\s*%?\s*(?:se zyada|se jyada|se ziada|se zada|se upar|se adhik|se badi|se bada)\b", ">"),
+               (_NOT_CLASS + r"(\d{1,3}(?:\.\d+)?)\s*%?\s*(?:or less|and below|or below)", "<="),
+               (_NOT_CLASS + r"(\d{1,3}(?:\.\d+)?)\s*%?\s*(?:or more|and above|or above|plus|\+)", ">=")]
         self._thresholds = []
         # "2 or more subjects" is a number of subjects, not a mark
         work = re.sub(r"\b(\d+|two|three|four)\s*(?:or more|\+|or above)?\s+subjects?\b", " ", work)
@@ -176,7 +229,15 @@ class Understander:
                 if mm.groupdict().get("s"):
                     e["sections"].append(mm.group("s").upper())
                 work = work[:mm.start()] + " " * (mm.end() - mm.start()) + work[mm.end():]
-        for mm in re.finditer(r"\b(?:section|sec)\.?\s*([a-h])\b|\b([a-h])\s*(?:section|sec)\b", work):
+        # a lone capital X or V is Class X / V ("result of X") - small x / v are too common to be a class
+        if not e["classes"]:
+            for c in ("X", "V"):
+                mm = re.search(r"\b" + c.lower() + r"\b", work)
+                if mm and re.search(r"(?<![A-Za-z0-9])" + c + r"(?![A-Za-z0-9])", raw):
+                    e["classes"].append(c)
+                    work = work[:mm.start()] + " " + work[mm.end():]
+                    break
+        for mm in re.finditer(r"\b(?:section|sec)\.?\s*[-:]?\s*([a-h])\b|\b([a-h])\s*-?\s*(?:section|sec)\b", work):
             e["sections"].append((mm.group(1) or mm.group(2)).upper())
             work = work.replace(mm.group(0), " ", 1)
         for mm in re.finditer(r"\bgroup\s*([a-e])\b", work):
@@ -201,7 +262,8 @@ class Understander:
             for k in range(min(4, len(toks) - i), 0, -1):
                 ph = " ".join(toks[i:i + k])
                 for cand in (ph, ph.replace(" ", "")):
-                    if cand in self.vocab.exam_phrases and cand not in ("test", "final"):
+                    if cand in self.vocab.exam_phrases and cand not in ("test", "final") and \
+                            not (cand == "ye" and not re.search(r"\bYE\b", raw)):
                         hit = (self.vocab.exam_phrases[cand], k)
                         break
                 if hit:
@@ -283,7 +345,7 @@ class Understander:
         e["label_pos"] = sorted(kept)
         # grouping words
         for by, words in (("section", ["by section", "section wise", "sectionwise", "each section", "per section", "every section",
-                                       "all sections"]),
+                                       "all sections", "each sec", "per sec", "sec wise", "har section", "har sec"]),
                           ("subject", ["by subject", "subject wise", "subjectwise", "each subject", "per subject", "every subject",
                                        "all subjects"]),
                           ("exam", ["by exam", "exam wise", "each exam", "over time", "across exams", "per exam", "every exam",
@@ -359,18 +421,22 @@ class Understander:
             return "internals", "keyword"
         # the class's weakest / strongest subject (no student named)
         if not has_student and _has(low, ["subject", "subjects"]) and not e["thresholds"] and not _has(low, kw["count"]):
-            if _has(low, ["weakest", "weekest", "weak", "worst", "poorest", "lowest", "kamzor", "toughest"]) and \
+            if _has(low, ["weakest", "weekest", "weak", "worst", "poorest", "lowest", "kamzor", "toughest", "tough", "hard",
+                          "hardest", "difficult", "mushkil", "kathin", "sabse kam"]) and \
                     not _has(low, ["students weak", "who is weak", "who are weak", "students who"]):
                 return "hardest", "keyword"
-            if _has(low, ["strongest", "best", "strong", "highest", "easiest", "good"]) and \
+            if _has(low, ["strongest", "best", "strong", "highest", "easiest", "easy", "good", "acha", "achha", "accha",
+                          "aasan", "asaan", "scoring"]) and \
                     not _has(low, ["each subject", "every subject", "subject toppers", "subject wise", "per subject",
-                                   "all subjects", "subject topper"]) and not _has(low, ["who"]):
+                                   "all subjects", "subject topper", "sabhi subject", "har subject", "average", "students",
+                                   "bacche"]) and not _has(low, ["who", "kaun"]):
                 return "easiest", "keyword"
         topword = _has(low, ["top", "topper", "toppers", "topped", "first", "highest", "best", "rank 1", "number one",
                              "no 1", "number 1", "first position", "sabse achhe", "sabse zyada"])
         if topword and not has_student and _has(low, ["each section", "every section", "per section", "section wise",
                                                       "sectionwise", "section toppers", "section topper", "all sections",
-                                                      "in each section", "har section"]):
+                                                      "in each section", "har section", "each sec", "every sec", "har sec",
+                                                      "sec wise", "secwise", "each sections"]):
             return "toppers_by_section", "keyword"
         if topword and not has_student and _has(low, ["each subject", "every subject", "per subject", "subject wise",
                                                       "subjectwise", "subject toppers", "subject topper", "all subjects",
@@ -387,13 +453,21 @@ class Understander:
             return "average", "keyword"
         if has_student:
             if _has(low, ["weakest", "weekest", "strongest", "best subject", "worst subject", "weak subject", "strong subject",
-                          "kamzor subject", "which subject", "weak in which", "best subjects", "worst subjects"]):
+                          "kamzor subject", "which subject", "weak in which", "best subjects", "worst subjects", "top subject",
+                          "top subjects", "toughest subject", "toughest subjects", "hardest subject", "hardest subjects",
+                          "good subjects", "achhe subject", "scored well", "did well in", "weak subjects", "strong subjects",
+                          "kamzor subjects", "kamjor subject"]):
                 return "student_subjects", "keyword"
             if _has(low, kw["rank"]):
                 return "rank", "keyword"
             if _has(low, kw["compare"]) and len(e["students"]) >= 2:
                 return "compare_students", "keyword"
             return "student", "keyword"
+        if not self._compare_groups(e) and not _has(low, ["compare", "vs", "versus", "tulna"]):
+            if _has(low, kw["improved"]) and not _has(low, kw["dropped"]):
+                return "improved", "keyword"
+            if _has(low, kw["dropped"]):
+                return "dropped", "keyword"
         if _has(low, kw["compare"]) or (len(e["sections"]) >= 2 or len(set(e["classes"])) >= 2 or len(e["groups"]) >= 2
                                        or len(e["genders"]) >= 2 or (len(e["exams"]) >= 2 and not e["thresholds"])) \
                 and not _has(low, kw["count"]):
@@ -407,12 +481,19 @@ class Understander:
             return "improved", "keyword"
         if _has(low, kw["dropped"]):
             return "dropped", "keyword"
-        if _has(low, kw["pass_rate"]):
+        if _has(low, kw["pass_rate"]) or (re.search(r"\bpass", low) and re.search(r"percent|%|\bratio\b|\brate\b", low)
+                                           and not e["thresholds"] and not _has(low, ["who", "kaun", "students who"])):
             return "pass_rate", "keyword"
         has_cond = bool(e["label_pos"] or e["thresholds"] or e["grades"] or _has(low, FAIL) or _has(low, ABSENT) or
                         _has(low, ["medical", "on leave", "duty leave"]))
         if _has(low, kw["distribution"]) and not e["label_pos"] and not (e["grades"] and _has(low, kw["count"] + ["who"])):
             return "distribution", "keyword"
+        if _has(low, VS_AVERAGE):
+            return ("count" if _has(low, kw["count"]) else "list"), "keyword"     # answered with "can't do that yet"
+        if _has(low, ["average", "avg", "ausat"]) and not _has(low, ["students", "bacche", "bachhe", "kids", "se upar",
+                                                                  "se neeche", "se zyada", "se kam"]) \
+                and not e["label_pos"] and not e["thresholds"] and not _has(low, FAIL):
+            return "average", "keyword"
         if _has(low, kw["count"]) or _has(low, ["what percentage of students", "what percent of students",
                                                 "percentage of students", "kitne percent"]):
             return "count", "keyword"
@@ -424,9 +505,12 @@ class Understander:
             if _has(low, ["bottom", "lowest", "last", "worst", "least", "sabse kam"]):
                 return "bottom", "keyword"
             return "top", "keyword"
-        if has_cond:
+        if _has(low, ["sabse kam", "sabse kum"]) and not e["thresholds"] and \
+                _has(low, ["who", "kaun", "kon", "kis", "kiske", "kiska", "kiski", "kisne", "students", "bacche"]):
+            return "bottom", "keyword"
+        if has_cond or (re.search(r"\bpass(?:ed)?\b", low) and _has(low, ["kaun", "who", "kis"])):
             return "list", "keyword"
-        if _has(low, SUMMARY) or re.search(r"\bresults?\b", low):
+        if (_has(low, SUMMARY) or re.search(r"\bresults?\b", low)) and not _has(low, ["average", "avg", "mean", "ausat"]):
             return "summary", "keyword"
         if _has(low, kw["average"]):
             return "average", "keyword"
@@ -434,7 +518,7 @@ class Understander:
             if _has(low, ["who", "kaun", "kis", "students", "scorers"]) and not e["subjects"]:
                 return "top", "keyword"
             return "highest", "keyword"
-        if _has(low, ["lowest", "minimum", "min", "least marks", "worst score", "sabse kam", "sabse kum"]):
+        if _has(low, ["lowest", "minimum", "min", "least marks", "least", "worst score", "sabse kam", "sabse kum"]):
             if _has(low, ["who", "kaun", "kis", "kiske", "students", "scorers"]) and not e["subjects"]:
                 return "bottom", "keyword"
             return "lowest", "keyword"
@@ -493,6 +577,15 @@ class Understander:
         elif intent == "top" and _has(e["low"], ["topped", "rank 1", "number one", "no 1", "number 1", "first position",
                                                   "came first", "is first", "stood first", "who is first", "who came first"]):
             q["n"] = 1
+        elif intent in ("top", "bottom") and _has(e["low"], SINGLE) and not _has(e["low"], PLURAL):
+            q["n"] = 1
+        if e["by"] == "class" and len(set(e["classes"])) == 1:
+            e["by"] = None                     # "each class 10" - one class cannot be split by class
+        if not e["by"] and intent in ("average", "pass_rate") and not _has(e["low"], ["any subject", "one subject"]):
+            if re.search(r"\bsec(?:tion)?s?\b|\bsectionwise\b", e["low"]) and not e["sections"]:
+                e["by"] = "section"
+            elif re.search(r"\bsubjects?\b", e["low"]) and not e["subjects"]:
+                e["by"] = "subject"
         if e["by"] and intent in ("average", "pass_rate", "count"):
             q["by"] = e["by"]
         if intent == "teacher" and self.boards and (not self.ds or _has(e["low"], self.kw["board"])):
@@ -551,7 +644,8 @@ class Understander:
             sc["cls"] = st.cls
             sc.pop("section", None)
             if intent == "student_subjects":
-                q["order"] = "strongest" if _has(e["low"], ["strongest", "best", "strong", "achha", "good"]) else "weakest"
+                q["order"] = "strongest" if _has(e["low"], ["strongest", "best", "strong", "achha", "achhe", "good", "top",
+                                                            "scored well", "did well"]) else "weakest"
             return self._done(q, how, e)
         if intent == "compare_students":
             return self._compare_students(e)
@@ -561,6 +655,11 @@ class Understander:
                 q["subject"] = e["subjects"][0]
         if intent in ("list", "count"):
             q["conds"] = self._conds(e)
+            # "above / below the class average" is not a condition the engine has - say so instead of counting everybody
+            if _has(e["low"], VS_AVERAGE) and all(c.get("op") == ">=" and c.get("value") == 0 for c in q["conds"]):
+                return {"unknown": True, "message": "I can't compare with the class average yet, so I won't guess. "
+                                                    "Ask with a mark instead (e.g. “who scored above 60 in maths”), or ask "
+                                                    "for the average first.", "suggestions": self.suggestions(e)}
         if intent == "count" and not q.get("conds"):
             q["conds"] = []
         if intent == "absent":
@@ -666,15 +765,22 @@ class Understander:
             conds.append({"grade": g, "subject": left[0] if left else None})
         if _has(low, FAIL):
             c = {"result": "not_passed", "subject": left[0] if left and not e["thresholds"] else None}
+            more = re.search(r"(?:\bmore than|>)\s*(\d|one|two|three|four)\s+subjects?\b", low)
             m = re.search(r"\b(?:more than one|more than 1|two or more|2 or more|at least two|at least 2|multiple|"
                           r"many|several|(\d|two|three|four))\s+subjects?\b", low)
-            if m:
-                words = {"two": 2, "three": 3, "four": 4}
+            words = {"one": 1, "two": 2, "three": 3, "four": 4}
+            if more:
+                g = more.group(1)
+                c["min"] = (int(g) if g.isdigit() else words[g]) + 1
+                c["subject"] = None
+            elif m:
                 g = m.group(1)
                 c["min"] = int(g) if g and g.isdigit() else words.get(g, 2)
                 c["subject"] = None
             conds.append(c)
-        elif _has(low, ["who passed", "students passed", "have passed", "has passed"]):
+        elif _has(low, ["who passed", "students passed", "have passed", "has passed", "passed", "how many pass",
+                        "kitne pass", "kitne bacche pass", "kaun pass", "who pass", "pass hue", "pass hua", "pass ho",
+                        "pass kiya", "pass huye", "pass kaun"]):
             conds.append({"result": "passed", "subject": left[0] if left else None})
         if _has(low, ABSENT):
             conds.append({"status": "AB", "subject": left[0] if left else None})

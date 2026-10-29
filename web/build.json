@@ -1,5 +1,5 @@
 {
- "version": "cc885b3d0eef",
+ "version": "56774a6e7d0e",
  "wheels": [
   "et_xmlfile-2.0.0-py3-none-any.whl",
   "openpyxl-3.1.5-py2.py3-none-any.whl",
@@ -14,6 +14,7 @@
   "assets/img/icon-64.png",
   "assets/img/rdps-logo-white.png",
   "assets/img/rdps-logo.png",
+  "assets/sheet/digits.json",
   "assets/video/ask.mp4",
   "assets/video/boards.mp4",
   "assets/video/check.mp4",
@@ -148,7 +149,10 @@
   "js/pages/school.js",
   "js/pages/settings.js",
   "js/pages/teachers.js",
+  "js/pages/typemarks.js",
   "js/report.js",
+  "js/sheetscan.js",
+  "js/sheettest.js",
   "js/state.js",
   "js/tour.js",
   "js/ui.js",

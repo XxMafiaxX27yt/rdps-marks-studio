@@ -512,3 +512,108 @@ def test_ask_board_streams_all_rounders_and_hardest():
     api.add_any("Class 10 Board Results.csv", CLASS_X_CSV, "board_X")
     d = ask("class 10 board toppers")
     assert d["query"]["cls"] == "X" and d["table"]["rows"][0][1] == "Asha Rao"
+
+
+def test_class_picked_before_uploading():
+    """The School page's class drop-down: a file that does not say its class is that class; one that looks like
+    another class (title, class column, subjects the class does not have) gets a question until answered."""
+    cfg = Config()
+    assert "042" not in cfg.class_subject_codes("X") and "086" in cfg.class_subject_codes("X")
+    assert "042" in cfg.class_subject_codes("XII") and "086" not in cfg.class_subject_codes("XII")
+    from markstudio.layout import class_parts
+    assert "portfolio" in class_parts(cfg, "X") and "portfolio" not in class_parts(cfg, "XII")
+
+    def add(name, text, cls):
+        p = build.Project(cfg)
+        info = p.add_any(name, text.encode(), cls=cls)
+        lay = next(iter(p.layouts.values()))
+        return p, info, lay
+    plain = "Roll,Name,English,Maths,Science,SSt\n1,Asha,60,70,55,66\n2,Ravi,50,40,45,61\n"
+    p, info, lay = add("half yearly marks.csv", plain, "X")
+    assert lay["cls"] == "X" and lay["cls_from"] == "picked" and not lay.get("clash") and not p.pending()
+    ds = p.build()
+    assert {s.cls for s in ds.students.values()} == {"X"}
+    p, info, lay = add("half yearly marks.csv", plain, "")
+    assert lay["cls"] is None and [x["what"] for x in p.pending()] == ["class"]
+
+    phy = "Roll,Name,English,Physics,Chemistry,Maths\n1,Asha,60,70,55,66\n2,Ravi,50,40,45,61\n"
+    p, info, lay = add("half yearly marks.csv", phy, "X")
+    assert lay["clash"]["source"] == "subjects" and lay["clash"]["fits"] == ["XI", "XII"]
+    assert "Physics and Chemistry are not Class X subjects" in lay["clash"]["why"]
+    assert info["clashes"] and "class_clash" in [x["what"] for x in p.pending()]
+    p.set_sheet(p.sources[0].id, lay["sheet"], cls="XII")
+    lay = p.layouts[(p.sources[0].id, lay["sheet"])]
+    assert not lay.get("clash") and lay["cls"] == "XII" and "class_clash" not in [x["what"] for x in p.pending()]
+    # worked out again for Class XII: one Physics column could be the written paper (70) or the total (100)
+    phys = next(c for c in lay["columns"] if c["subject"] == "042")
+    assert not phys["sure"] and "Physics" in phys["why"]
+
+    titled = "Class IX Half Yearly\nRoll,Name,English,Maths\n1,Asha,60,70\n"
+    p, info, lay = add("marks.csv", titled, "X")
+    assert lay["clash"]["found"] == "IX" and lay["clash"]["source"] == "title"
+    p, info, lay = add("marks.csv", titled, "IX")
+    assert not lay.get("clash") and lay["cls"] == "IX"
+
+    col = "Roll,Name,Class,English,Maths\n1,Asha,IX-A,60,70\n2,Ravi,IX-B,50,40\n"
+    p, info, lay = add("half yearly marks.csv", col, "X")
+    assert lay["clash"]["source"] == "column" and lay["clash"]["seen"] == ["IX"]
+    p.set_sheet(p.sources[0].id, lay["sheet"], skip=True)
+    assert not p.pending()
+
+    # the class picked for this upload beats a layout remembered from another class's file
+    p, info, lay = add("half yearly marks.csv", plain, "VII")
+    p.confirm_sheet(p.sources[0].id, lay["sheet"])
+    p.add_any("half yearly marks b.csv", plain.encode(), cls="VIII")
+    second = p.layouts[(p.sources[1].id, p.sources[1].sheets[0].name)]
+    assert second["remembered"] and second["cls"] == "VIII"
+
+    api.init()
+    info = json.loads(api.class_info("X"))["data"]
+    assert info and "Physics" not in [s["name"] for s in info["subjects"]] and "Hindi" in info["languages"]
+
+
+def test_type_marks_screen():
+    """Marks typed on the website: names from the class list, only the parts ticked, empty students left out,
+    typing the same class / exam / subject again replaces the first copy, and results are made from it."""
+    api.init()
+    api.add_any("Class VI-A list.csv", b"Roll No,Admission No,Name\n1,9001,Asha Test\n2,9002,Ravi Test\n3,9003,Meena Test\n",
+                "class_list", "", "")
+    setup = json.loads(api.type_setup("VI", "A"))["data"]
+    assert [s["name"] for s in setup["students"]] == ["Asha Test", "Ravi Test", "Meena Test"] and setup["sections"] == ["A"]
+    hy = {c["part"]: (c["max"], c["on"]) for c in setup["columns"]["HY|301"]}
+    assert hy == {"theory": (80, True), "portfolio": (5, False), "project": (5, False), "notebook": (5, False)}
+    assert setup["columns"]["HY|402"] == []                      # ICT is not counted in Class VI
+    xii = json.loads(api.type_setup("XII", ""))["data"]["columns"]["HY|042"]
+    assert [(c["part"], c["max"], c["on"]) for c in xii] == [("theory", 70, True), ("practical", 30, True)]
+
+    def typed(values, subject="301"):
+        rows = [{"roll": s["roll"], "adm_no": s["adm_no"], "name": s["name"], "section": "A",
+                 "values": {"theory": v} if v is not None else {}} for s, v in zip(setup["students"], values)]
+        return json.loads(api.add_typed(json.dumps({"cls": "VI", "section": "A", "exam": "HY", "subject": subject,
+                                                    "parts": ["theory"], "rows": rows, "teacher": ""})))
+    out = typed(["66", "AB", None])
+    assert out["ok"] and out["data"]["students"] == 2
+    out = typed(["70", "AB", None])                               # typed again: replaces, not added twice
+    st = json.loads(api.state())["data"]
+    assert len(st["files"]) == 1 and st["files"][0]["typed"]["count"] == 2 and not st["pending"]
+    typed(["50", "60", "40"], subject="041")
+    res = json.loads(api.analyze())["data"]
+    assert res["students"] == 3 and not res["counts"]["error"]
+    m = json.loads(api.matrix("VI", "HY", "All"))["data"]
+    asha = next(r for r in m["rows"] if r["name"] == "Asha Test")
+    assert [c["pct"] for c in asha["cells"] if c] == [87.5, 62.5]      # 70 / 80 and 50 / 80
+    again = json.loads(api.typed_get(st["files"][0]["id"]))["data"]
+    assert again["rows"][0]["values"] == {"theory": "70"}
+    assert not json.loads(api.add_typed(json.dumps({"cls": "VI", "section": "A", "exam": "HY", "subject": "301",
+                                                    "parts": ["theory"], "rows": [], "teacher": ""})))["ok"]
+
+
+def test_ask_question_bank():
+    """Every question in tests/ask_bank.json (written by a local AI model from clear questions with blanks, filled with
+    many ways of writing a class, subject, name ...) still gives the same query as the clear question."""
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
+    import ask_bank
+    bank = json.load(open(os.path.join(os.path.dirname(__file__), "ask_bank.json"), encoding="utf-8"))
+    assert sum(len(v) for v in bank["phrasings"].values()) > 500
+    bad = ask_bank.check_bank(bank)
+    assert not bad, bad[:5]

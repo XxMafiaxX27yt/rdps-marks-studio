@@ -249,7 +249,8 @@ class BoardWorkbook:
                                                 font_color=theme.RED if x["failed"] else theme.TEXT, **band))
             ws.write_formula(rr, 9, f'=COUNTIF({R},">=90")', cell, x["above90"])
             ws.write_formula(rr, 10, f"=COUNTIF({R},100)", cell, x["centums"])
-            ws.write(rr, 12, _n(x["vs_own"]) if x["vs_own_n"] >= 3 else "", f.num(1, bold=True, **band))
+            ws.write(rr, 12, _n(x["vs_own"]) if x["vs_own_n"] >= 3 else "", f.gap(bold=True, **band))
+            f.about_same(ws, rr, 12, rr, 12)
             for j, gname in enumerate(GRADE_ORDER):
                 ws.write(rr, g0 + j, x["grades"].get(gname, 0), cell)
             # PI written as a formula from the grade counts, so it can be checked
@@ -728,18 +729,19 @@ class BoardWorkbook:
             ws.write(rr, 6, _n(c["max"]), f.num(0, **band))
             ws.write(rr, 7, c["above90"], f.cell(align="center", **band))
             ws.write(rr, 8, c["grade_e"], f.cell(align="center", font_color=theme.RED if c["grade_e"] else theme.TEXT, **band))
-            ws.write(rr, 9, _n(fx["vs_own"]), f.num(1, **band))
+            ws.write(rr, 9, _n(fx["vs_own"]), f.gap(**band))
             e = fx["effect"]
-            ws.write(rr, 10, _n(e), f.num(1, bold=True, **band))
-            ws.write_string(rr, 11, f"{float(fx['low']):.1f} to {float(fx['high']):.1f}" if e is not None else "-",
+            ws.write(rr, 10, _n(e), f.gap(bold=True, **band))
+            ws.write_string(rr, 11, theme.range_text(fx["low"], fx["high"]) if e is not None else "-",
                             f.cell(align="center", **band))
             vcol = {"Clear positive impact": theme.GREEN, "Worth a conversation": theme.AMBER}.get(fx["verdict"], theme.TEXT)
             ws.write_string(rr, 12, fx["verdict"], f.cell(bold=True, font_color=vcol, **band))
         last = r + len(cards)
+        f.about_same(ws, first, 9, last, 10)
         for col in (9, 10):
-            ws.conditional_format(first, col, last, col, {"type": "cell", "criteria": "<", "value": 0,
-                                                          "format": f.get(font_color=theme.RED)})
-            ws.conditional_format(first, col, last, col, {"type": "cell", "criteria": ">", "value": 0,
+            ws.conditional_format(first, col, last, col, {"type": "cell", "criteria": "<=", "value": -1,
+                                                          "format": f.get(font_color=theme.AMBER)})
+            ws.conditional_format(first, col, last, col, {"type": "cell", "criteria": ">=", "value": 1,
                                                           "format": f.get(font_color=theme.GREEN)})
         r = last + 2
         # chart data: better / same / worse, and the bands

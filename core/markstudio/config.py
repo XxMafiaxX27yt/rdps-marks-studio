@@ -75,6 +75,22 @@ class Config:
         off = self.class_offer(cls)
         return list(off.get("language", [])) if off else []
 
+    def class_subject_codes(self, cls):
+        """The subjects one class has, in the usual order. A junior class: its fixed subjects and languages
+        (rules.class_subjects). XI-XII: every subject of a stream, and any subject no junior class has
+        (an additional 6th subject)."""
+        off = self.class_offer(cls)
+        if off:
+            codes = set(off.get("subjects", [])) | set(off.get("language", []))
+        else:
+            junior = set()
+            for v in self.rules.get("class_subjects", {}).values():
+                if isinstance(v, dict):
+                    junior |= set(v.get("subjects", [])) | set(v.get("language", []))
+            codes = {c for g in self.groups for c in g.get("core", []) + [x for ch in g.get("choices", []) for x in ch]}
+            codes |= {c for c in self.subjects if c not in junior}
+        return self.order_subjects(codes)
+
     def resolve_subject(self, cls, code):
         """In junior classes a heading like 'Computer' means ICT (see junior_subject_alias)."""
         if code and cls in self.classes and not self.has_streams(cls):

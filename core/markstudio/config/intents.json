@@ -283,7 +283,11 @@
     "pass rate",
     "passing percentage",
     "result percentage",
-    "pass %"
+    "pass %",
+    "pass percent",
+    "passing percent",
+    "pass ratio",
+    "kitne percent pass"
    ],
    "examples": [
     "pass percentage of class 12",
@@ -319,7 +323,17 @@
     "most improved",
     "progress",
     "better than last",
-    "sudhar"
+    "sudhar",
+    "got better",
+    "became better",
+    "marks went up",
+    "grades went up",
+    "went up",
+    "improve",
+    "improving",
+    "badhe",
+    "badh gaye",
+    "sudhre"
    ],
    "examples": [
     "who improved the most",
@@ -337,7 +351,15 @@
     "fell",
     "decrease",
     "worse than last",
-    "gire"
+    "gire",
+    "drop",
+    "drops",
+    "dropping",
+    "marks gire",
+    "kam ho gaye",
+    "girawat",
+    "declining",
+    "decline"
    ],
    "examples": [
     "who dropped in marks",

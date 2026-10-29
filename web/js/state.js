@@ -24,5 +24,5 @@ const LS = {
 };
 export { LS };
 
-export const prefs = LS.get("rdps.prefs", { theme: null, aiUnderstanding: true, voiceLang: "en", macros: true });
+export const prefs = LS.get("rdps.prefs", { theme: null, aiUnderstanding: true, voiceLang: "en", macros: true, uploadClass: "" });
 export function savePrefs() { LS.set("rdps.prefs", prefs); }

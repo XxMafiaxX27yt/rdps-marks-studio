@@ -19,8 +19,12 @@ file 10, test 30). ICT: written 30 from Class VII; not counted in I-VI. X and XI
 ## For teachers
 
 1. Open the website in Chrome or Edge. The first visit takes a few seconds; after that it opens instantly and works offline.
-2. **School results → Upload**: drop the marks file(s). Excel, old .xls, CSV, PDF and scanned *printed* sheets all work.
-   The CBSE result gazette (.TXT) goes to **Board results** automatically.
+2. **School results → Upload**: first pick the class (you get that class's template and only its subjects, and a
+   question if a file looks like another class), then drop the marks file(s). Excel, old .xls, CSV, PDF and scanned
+   *printed* sheets all work. The CBSE result gazette (.TXT) goes to **Board results** automatically.
+   No file? **Type marks**: pick class, section, exam and subject - the names are already there, type only the marks.
+   Marks on paper? Print the sheet there, write the marks by hand (one digit per box), and read a photo of it: every
+   mark is shown next to its picture, unclear ones are marked, and the page total is checked.
 3. **Check**: see what each column was understood as. Amber boxes need a click to confirm. Your choices are remembered.
 4. **Review**: dashboard, every student, subjects, progress and report cards. Every chart and number has a **?**
    that plays a short walk-through with the same explanation written below it (all of them: **How it works**).
@@ -86,7 +90,8 @@ core/markstudio/       the engine (Python) - the same code runs in the browser a
   calc.py / verify.py  the arithmetic, and the independent second calculation
   views.py             numbers for the website and the workbook (always the same)
   board.py             board results: best 5, PI, toppers, year on year, school vs boards
-  query.py / nlu.py    questions in plain words -> approved operations only
+  query.py / nlu.py    questions in plain words -> approved operations only (tools/ask_bank.py: a local AI on the
+                       developer's PC writes many phrasings to test the rules; tests/ask_bank.json keeps them)
   teachers.py          teacher analysis (cards + comparison, the fair check)
   commands.py          "change the Excel with words"
   excel/               workbook writer, board workbook, template, theme, macros (VBA)
@@ -94,6 +99,8 @@ core/markstudio/       the engine (Python) - the same code runs in the browser a
 web/                   the website (publish this folder)
   js/worker.js         runs the Python engine in the browser (Pyodide)
   js/ai-worker.js      on-device AI: question understanding + voice (transformers.js)
+  js/sheetscan.js      paper mark sheets: print, and read a photo (digit reader: assets/sheet/digits.json,
+                       trained on drawn digits by tools/digits_train.py; test: js/sheettest.js)
   vendor/              all libraries, stored locally (nothing loads from other sites)
 tests/                 automatic tests
 tools/                 the .bat helpers

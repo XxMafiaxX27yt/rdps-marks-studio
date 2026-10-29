@@ -32,6 +32,28 @@ LABEL_COLORS = {
 }
 
 
+def gap_text(v, unit="marks"):
+    """A difference in words, as on the website: '▼ 5.2 marks lower', '▲ 3.0% higher', '≈ about the same'."""
+    if v is None:
+        return "-"
+    v = float(v)
+    u = "%" if unit == "%" else " " + unit
+    if abs(v) < 1:
+        return "≈ about the same"
+    return f"{'▲' if v > 0 else '▼'} {abs(v):.1f}{u} {'higher' if v > 0 else 'lower'}"
+
+
+def range_text(lo, hi, unit="marks"):
+    """'likely 1.0 to 6.0 marks higher' / 'likely between 2.0 lower and 6.0 higher'."""
+    lo, hi = float(lo), float(hi)
+    u = "%" if unit == "%" else " " + unit
+    if lo >= 0:
+        return f"likely {lo:.1f} to {hi:.1f}{u} higher"
+    if hi <= 0:
+        return f"likely {-hi:.1f} to {-lo:.1f}{u} lower"
+    return f"likely between {-lo:.1f}{u} lower and {hi:.1f}{u} higher"
+
+
 class Formats:
     """All cell formats of one workbook, created lazily."""
 
@@ -67,6 +89,23 @@ class Formats:
         d = dict(border=1, border_color=LINE, num_format="0." + "0" * places if places else "0", align="center")
         d.update(kw)
         return self.get(**d)
+
+    def gap(self, unit="marks", **kw):
+        """A difference shown in words while the cell keeps its number (formulas and charts still work):
+        '▲ 5.0 marks higher' / '▼ 3.0 marks lower'; add about_same() for '≈ about the same' under 1."""
+        u = "%" if unit == "%" else " " + unit
+        d = dict(border=1, border_color=LINE, align="center",
+                 num_format=f'"▲ "0.0"{u} higher";"▼ "0.0"{u} lower";"≈ about the same"')
+        d.update(kw)
+        return self.get(**d)
+
+    def about_same(self, ws, r1, c1, r2, c2):
+        """Anything under 1 either way reads '≈ about the same' (Excel shows a minus sign in a plain format)."""
+        if "_same" not in self._cache:
+            self._cache["_same"] = self.wb.add_format({"num_format": '"≈ about the same";"≈ about the same";"≈ about the same"',
+                                                       "font_color": MUTED, "bold": False})
+        ws.conditional_format(r1, c1, r2, c2, {"type": "cell", "criteria": "between", "minimum": -0.9999,
+                                               "maximum": 0.9999, "format": self._cache["_same"]})
 
     def section(self):
         return self.get(font_name=TITLE_FONT, font_size=12, font_color=NAVY, bottom=2, bottom_color=BLUE)

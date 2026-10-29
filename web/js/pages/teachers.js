@@ -2,7 +2,7 @@
 // students did - in the school exams and in the board results - with charts.
 import * as engine from "../engine.js";
 import { S, LS } from "../state.js";
-import { $, $$, esc, fmt, toast, chart, cssVar, table } from "../ui.js";
+import { $, $$, esc, fmt, toast, chart, cssVar, table, gapWords, gapText, rangeText } from "../ui.js";
 import { qmark } from "../explain.js";
 import { addAny } from "../intake.js";
 
@@ -116,11 +116,8 @@ export function html() {
 // ------------------------------------------------------------------ analysis (both kinds)
 const VERDICT_CLS = { "Clear positive impact": "b-strong", "Worth a conversation": "b-weak", "No clear difference": "b-track" };
 function verdict(v) { return `<span class="badge ${VERDICT_CLS[v] || "b-leave"}">${esc(v || "–")}</span>`; }
-function signed(v, unit = "") {
-  if (v === null || v === undefined) return "–";
-  const col = v > 0.05 ? "var(--green)" : v < -0.05 ? "var(--red)" : "inherit";
-  return `<b style="color:${col}">${v > 0 ? "+" : ""}${fmt(v)}${unit}</b>`;
-}
+// school exams are compared in % of the paper, board results in marks
+const unitOf = (kind) => (kind === "board" ? "marks" : "%");
 const verdictColor = (v) => ({ "Clear positive impact": cssVar("--green"), "Worth a conversation": cssVar("--amber"), "No clear difference": cssVar("--blue") }[v] || "#9DB4C7");
 
 /** One line anyone can read. */
@@ -164,11 +161,11 @@ function cardHtml(c, k, kind) {
       <div class="wide"><h4>Every student</h4><div class="chart-box"><canvas id="tp-${kind}-${k}"></canvas></div>
         <div class="tiny muted">Each dot is a student. Dots above the dashed line did better in ${esc(c.subject_name)} than in their other subjects.</div></div>
     </div>` : ""}
-    ${v.sections && v.sections.length > 1 ? `<div class="t-secs">${v.sections.map((s) => `<div><b>${esc(s[0])}</b><span>${s[1]} students · average ${fmt(s[2])}${s[3] !== null && s[3] !== undefined ? ` · ${signed(s[3])} vs other subjects` : ""}</span></div>`).join("")}</div>` : ""}
+    ${v.sections && v.sections.length > 1 ? `<div class="t-secs">${v.sections.map((s) => `<div><b>${esc(s[0])}</b><span>${s[1]} students · average ${fmt(s[2])}${s[3] !== null && s[3] !== undefined ? ` · ${gapWords(s[3], { unit: unitOf(kind), than: "their other subjects" })}` : ""}</span></div>`).join("")}</div>` : ""}
     ${school.length && school.some((x) => x.by_exam.length > 1) ? `<h4 style="margin-top:12px">Across the exams</h4><div class="chart-box sm"><canvas id="tl-${k}"></canvas></div>` : ""}
     <details class="t-more"><summary>More details</summary>
       ${kind !== "board" ? table(["Class", "Exam", "Students", "Average %", "Pass %", "vs their other subjects", "vs the whole class"],
-        school.flatMap((x) => x.by_exam.map((e) => [x.label, e.name, e.n, e.avg, e.pass_pct, { html: signed(e.vs_own) }, { html: signed(e.vs_class) }])),
+        school.flatMap((x) => x.by_exam.map((e) => [x.label, e.name, e.n, e.avg, e.pass_pct, { html: gapWords(e.vs_own, { unit: "%" }) }, { html: gapWords(e.vs_class, { unit: "%" }) }])),
         { numeric: [2, 3, 4, 5, 6], max: 60 }) : ""}
       <ul class="remarks small">${c.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></details>
   </div>`;
@@ -230,7 +227,7 @@ function analysisHtml() {
       <div class="chart-box sm"><canvas id="tcmp-${esc(b.subject)}"></canvas></div>
       ${table(["Teacher", "Classes", "Students", "Average %", "Pass %", "Fair check", "Difference (likely range)"],
         b.rows.map((r) => [r.name, r.classes, r.students_latest, r.avg, r.pass_pct, { html: verdict(r.fair.verdict) },
-          { html: r.fair.effect !== null && r.fair.effect !== undefined ? `${signed(r.fair.effect)} <span class="muted small">(${fmt(r.fair.low)} to ${fmt(r.fair.high)})</span>` : "–" }]), { numeric: [2, 3, 4] })}</div>`).join("");
+          { html: r.fair.effect !== null && r.fair.effect !== undefined ? `${gapWords(r.fair.effect, { unit: "%" })} <span class="muted small">(${esc(rangeText(r.fair.low, r.fair.high, "%"))})</span>` : "–" }]), { numeric: [2, 3, 4] })}</div>`).join("");
   return tabs + `<div class="note" style="margin:14px 0">⚖️ <b>Marks show only part of teaching.</b> Each student is compared with what the same student gets in their other subjects, students low in every subject are left out, and a teacher is only called “clearly” better or lower when the whole likely range agrees. Use it to start a conversation, not to decide.</div>` +
     overviewHtml(a.cards, "school") +
     (cmp ? `<h2 class="t-subj">Teachers of the same subject</h2><div class="grid g2">${cmp}</div>` : "") +
@@ -249,9 +246,11 @@ function drawCharts(kind) {
     chart(cv, "bar", cards.map((c) => `${c.name} · ${c.subject_name}`), [{
       label: "marks above / below expected", data: cards.map(val), borderRadius: 6, barThickness: 18,
       backgroundColor: cards.map((c) => verdictColor((c.fair || {}).verdict)),
-    }], { indexAxis: "y", y: { beginAtZero: false, grid: { display: false } }, x: { grid: { display: true, color: cssVar("--line") } },
-      tooltip: { label: (ctx) => { const c = cards[ctx.dataIndex]; const f = c.fair || {};
-        return f.effect !== null && f.effect !== undefined ? ` ${fmt(f.effect)} (likely ${fmt(f.low)} to ${fmt(f.high)}) - ${f.verdict}` : ` ${fmt(ctx.raw)} vs their other subjects - ${f.verdict}`; } } });
+    }], { indexAxis: "y", y: { beginAtZero: false, grid: { display: false } },
+      x: { grid: { display: true, color: cssVar("--line") }, title: { display: true, text: "◀ lower than expected        higher than expected ▶", color: cssVar("--muted") } },
+      tooltip: { label: (ctx) => { const c = cards[ctx.dataIndex]; const f = c.fair || {}; const u = unitOf(kind);
+        return f.effect !== null && f.effect !== undefined ? ` ${gapText(f.effect, { unit: u, than: "with the other teachers", arrow: true })} (${rangeText(f.low, f.high, u)}) - ${f.verdict}`
+          : ` ${gapText(ctx.raw, { unit: u, than: "their other subjects", arrow: true })} - ${f.verdict}`; } } });
   }
   cards.forEach((c, k) => {
     const v = c.viz;

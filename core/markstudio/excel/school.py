@@ -1774,6 +1774,7 @@ class SchoolWorkbook:
                                     "all their subjects - it does not depend on how strong the section is.", 9)
         heads = ["Class", "Exam", "Students", "Average %", "Pass %", "vs own average", "vs class average", "Not passed"]
         num1 = f.num(1)
+        gap = f.gap("%")
         # the detail goes below the comparison tables, which point at it
         n_cmp = sum(len(c["rows"]) + 3 for c in an["comparison"])
         rr = 4 + 2 + n_cmp + 1
@@ -1809,11 +1810,12 @@ class SchoolWorkbook:
                     ws.write_formula(rr, 3, '=COUNTIFS(%s,SR_Status,"OK")' % crit, f.cell(align="center"), e["n"])
                     ws.write_formula(rr, 4, '=IFERROR(AVERAGEIFS(SR_Pct,%s,SR_Status,"OK"),"")' % crit, num1, _num(e["avg"]))
                     ws.write_formula(rr, 5, '=IFERROR(%s/(%s+%s)*100,"")' % (yes, yes, no), num1, _num(e["pass_pct"]))
-                    ws.write_formula(rr, 6, '=IFERROR(AVERAGEIFS(SR_VOwn,%s,SR_Status,"OK"),"")' % crit, num1,
+                    ws.write_formula(rr, 6, '=IFERROR(AVERAGEIFS(SR_VOwn,%s,SR_Status,"OK"),"")' % crit, gap,
                                      _num(e["vs_own"]))
                     si = self.stats_index.get((sec["cls"], e["exam"], card["subject"]))
-                    ws.write_formula(rr, 7, ('=IFERROR(%s-_stats!%s,"")' % (rc(rr, 4), rc(si, 3))) if si else '=""', num1,
+                    ws.write_formula(rr, 7, ('=IFERROR(%s-_stats!%s,"")' % (rc(rr, 4), rc(si, 3))) if si else '=""', gap,
                                      _num(e["vs_class"]))
+                    f.about_same(ws, rr, 6, rr, 7)
                     ws.write_formula(rr, 8, "=" + no, f.cell(align="center"), e["not_passed"])
                 latest_rows.append((rr, sec))
                 if len(sec["by_exam"]) > 1:
@@ -1844,7 +1846,7 @@ class SchoolWorkbook:
                 fx = row["fair"] or {}
                 vcol = {"Clear positive impact": theme.GREEN, "Worth a conversation": theme.AMBER}.get(fx.get("verdict"), theme.TEXT)
                 ws.write_string(r, 9, fx.get("verdict", ""), f.cell(bold=True, font_color=vcol))
-                ws.write_string(r, 10, ("%+.1f (%.1f to %.1f)" % (fx["effect"], fx["low"], fx["high"]))
+                ws.write_string(r, 10, ("%s (%s)" % (theme.gap_text(fx["effect"], "%"), theme.range_text(fx["low"], fx["high"], "%")))
                                 if fx.get("effect") is not None else "-", f.cell(align="center"))
                 if not lat:
                     continue
@@ -1858,7 +1860,8 @@ class SchoolWorkbook:
                 no = "+".join(rc(x, 8) for x, _ in lat)
                 ws.write_formula(r, 5, '=IFERROR((%s)/((%s)+(%s))*100,"")' % (yes, yes, no), num1, _num(row["pass_pct"]))
                 vsum = "+".join("N(%s)*N(%s)" % (rc(x, 3), rc(x, 6)) for x, _ in lat)
-                ws.write_formula(r, 6, '=IFERROR((%s)/(%s),"")' % (vsum, cnt), num1, _num(row["vs_own"]))
+                ws.write_formula(r, 6, '=IFERROR((%s)/(%s),"")' % (vsum, cnt), f.gap("%"), _num(row["vs_own"]))
+                f.about_same(ws, r, 6, r, 6)
                 ws.write_formula(r, 7, ('=IFERROR(AVERAGE(%s),"")' % ",".join(chg)) if chg else '=""', num1,
                                  _num(row["change"]))
                 ws.write_formula(r, 8, "=" + no, f.cell(align="center"), row["not_passed"])
@@ -1892,8 +1895,9 @@ class SchoolWorkbook:
             ws.write(r, 3, sp["better"], f.cell(align="center"))
             ws.write(r, 4, sp["same"], f.cell(align="center"))
             ws.write(r, 5, sp["worse"], f.cell(align="center"))
-            ws.write(r, 6, _num(o.get("vs_own")), f.num(1))
+            ws.write(r, 6, _num(o.get("vs_own")), f.gap("%"))
         last = r
+        f.about_same(ws, first, 6, last, 6)
         name = ws.get_name()
         ch = self.wb.add_chart({"type": "bar"})
         ch.add_series({"name": "vs own average (points)", "categories": [name, first, 1, last, 1],

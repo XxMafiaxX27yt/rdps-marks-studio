@@ -2,7 +2,7 @@
 // Same layout as the School results review: pick the class, then tabs.
 import * as engine from "../engine.js";
 import { S } from "../state.js";
-import { $, $$, esc, fmt, toast, chart, countUp, download, XLSX, table, cssVar } from "../ui.js";
+import { $, $$, esc, fmt, toast, chart, countUp, download, XLSX, table, cssVar, gapWords, gapText } from "../ui.js";
 import { qmark } from "../explain.js";
 import { addAny } from "../intake.js";
 import { printBoard } from "../report.js";
@@ -243,10 +243,10 @@ function stuCard(b, roll) {
       <div><b>${pct(s.best5)}</b><span>Best 5 %</span></div><div><b>${pct(s.pct_all)}</b><span>All subjects %</span></div>
       <div><b>${above === null ? "–" : above + "%"}</b><span>of students below</span></div><div>${resultBadge(s.result)}<span>Result</span></div></div>
     <div class="grid g2" style="margin-top:14px"><div class="chart-box" style="height:${80 + rows.length * 34}px"><canvas id="stu-chart"></canvas></div>
-      <div>${table(["Subject", "Marks", "Grade", "School avg", "vs avg", "Best 5"], rows.map((r) => [r.name, r.marks, r.grade || "–", r.avg === null ? "–" : fmt(r.avg),
-        { html: r.diff === null ? "–" : `<b style="color:${r.diff >= 0 ? "var(--green)" : "var(--amber)"}">${r.diff >= 0 ? "+" : ""}${fmt(r.diff)}</b>` },
+      <div>${table(["Subject", "Marks", "Grade", "School avg", "vs the school average", "Best 5"], rows.map((r) => [r.name, r.marks, r.grade || "–", r.avg === null ? "–" : fmt(r.avg),
+        { html: r.diff === null ? "–" : gapWords(r.diff, { higher: "above", lower: "below" }) },
         s.best5_subjects.includes(r.code) ? "✓" : ""]), { numeric: [1, 3, 4] })}
-      ${best.length > 1 ? `<p class="small" style="margin:10px 0 0">Strongest compared with the school: <b>${esc(best[0].name)}</b> (${best[0].diff >= 0 ? "+" : ""}${fmt(best[0].diff)}). Weakest: <b>${esc(best[best.length - 1].name)}</b> (${best[best.length - 1].diff >= 0 ? "+" : ""}${fmt(best[best.length - 1].diff)}).</p>` : ""}</div></div></div>`;
+      ${best.length > 1 ? `<p class="small" style="margin:10px 0 0">Strongest compared with the school: <b>${esc(best[0].name)}</b> (${esc(gapText(best[0].diff, { higher: "above", lower: "below", than: "the school average" }))}). Weakest: <b>${esc(best[best.length - 1].name)}</b> (${esc(gapText(best[best.length - 1].diff, { higher: "above", lower: "below", than: "the school average" }))}).</p>` : ""}</div></div></div>`;
   chart($("#stu-chart"), "bar", rows.map((r) => r.name), [
     { label: s.name, data: rows.map((r) => r.marks), backgroundColor: cssVar("--blue"), borderRadius: 5 },
     { label: "School average", data: rows.map((r) => r.avg), backgroundColor: "#9DB4C7", borderRadius: 5 }],
@@ -259,7 +259,7 @@ function stuCard(b, roll) {
 function subjectsHtml(b) {
   const rows = b.subjects.map((s) => [s.name, s.candidates, { html: `<b>${pct(s.avg)}</b>` }, pct(s.median), s.q1 === null ? "–" : `${fmt(s.q1, 0)}–${fmt(s.q3, 0)}`,
     s.max ?? "–", s.min ?? "–", s.above90, s.centums || "", { html: s.failed ? `<b style="color:var(--red)">${s.failed}</b>` : "0" },
-    b.meta.graded ? pct(s.pi) : "–", { html: s.vs_own === null ? "–" : `<b style="color:${s.vs_own >= 0 ? "var(--green)" : "var(--amber)"}">${s.vs_own >= 0 ? "+" : ""}${fmt(s.vs_own)}</b>` }]);
+    b.meta.graded ? pct(s.pi) : "–", { html: s.vs_own === null ? "–" : gapWords(s.vs_own) }]);
   return `<div class="grid g2">
     <div class="card span2"><div class="card-head"><h3>Every student's mark</h3><span class="tiny muted">one dot = one student · colour = CBSE grade · hover a dot for the name</span></div>
       <div class="chart-box" style="height:${110 + b.subjects.length * 38}px"><canvas id="bs-strip"></canvas></div></div>
@@ -267,7 +267,7 @@ function subjectsHtml(b) {
       <p class="tiny muted" style="margin:8px 0 0">Each student's mark in the subject minus their own average in their other subjects, averaged. Plus = they scored more here than elsewhere. Fairer than plain averages, because every subject has different students.</p></div>
     <div class="card"><h3>${b.meta.graded ? "CBSE grades in each subject" : "Marks in each subject"}</h3><div class="chart-box"><canvas id="bs-gr"></canvas></div>
       ${b.meta.graded ? `<p class="tiny muted" style="margin:8px 0 0">CBSE gives grades by position among all its students in that subject, so the same mark can be a different grade in another subject.</p>` : ""}</div>
-    <div class="card span2"><h3>Subjects</h3>${table(["Subject", "Students", "Average", "Middle mark", "Middle half", "Highest", "Lowest", "90+", "100s", "Did not pass", "PI", "vs own other subjects"], rows, { numeric: [1, 2, 3, 5, 6, 7, 8, 9, 10, 11] })}
+    <div class="card span2"><h3>Subjects</h3>${table(["Subject", "Students", "Average", "Middle mark", "Middle half", "Highest", "Lowest", "90+", "100s", "Did not pass", "PI", "vs the same students' other subjects"], rows, { numeric: [1, 2, 3, 5, 6, 7, 8, 9, 10, 11] })}
       <p class="tiny muted" style="margin:8px 0 0">Middle mark = half the students scored more, half less. Middle half = the marks of the middle 50% of students. PI = (8×A1 + 7×A2 + … + 1×D2) × 100 ÷ (8 × students), CBSE's grade score.</p></div>
   </div>`;
 }
@@ -304,7 +304,7 @@ function teachersHtml(b) {
       <a class="btn btn-primary btn-sm" href="#/teachers" data-boardtab>Charts for every teacher →</a></div>
       ${table(["Subject", "Teacher", "Sections", "Students", "Average", "vs own other subjects", "vs other teachers", "Fair check"],
         t.cards.map((c) => [c.subject_name, c.name, (c.sections || []).join(", ") || t.cls, c.candidates, pct(c.avg),
-          c.fair.vs_own === null ? "–" : fmt(c.fair.vs_own), c.fair.effect === null ? "–" : fmt(c.fair.effect),
+          { html: c.fair.vs_own === null ? "–" : gapWords(c.fair.vs_own) }, { html: c.fair.effect === null ? "–" : gapWords(c.fair.effect) },
           { html: `<span class="badge ${vcol(c.fair.verdict)}">${esc(c.fair.verdict)}</span>` }]), { numeric: [3, 4, 5, 6] })}
       ${!t.split ? `<p class="small muted" style="margin:10px 0 0">💡 Add the class lists on the Teachers page to see each teacher on their own sections.</p>` : ""}
       <p class="tiny muted" style="margin:8px 0 0">${esc(t.caution || "")}</p></div>`;
@@ -321,8 +321,8 @@ function yearsHtml(b) {
 
 function linkHtml(b) {
   const l = b.link;
-  return `<div class="card"><h3>School exams vs board</h3><p class="muted small">${l.linked_students} students linked by board roll no / admission no${l.by_name ? ` (${l.by_name} by name - please check)` : ""}. Gap = board marks − school exam %.</p>
-    ${table(["Subject", "Students", "Average gap (marks)"], l.by_subject.map((x) => [x.name, x.n, { html: `<b style="color:${x.avg_gap >= 0 ? "var(--green)" : "var(--amber)"}">${x.avg_gap >= 0 ? "+" : ""}${fmt(x.avg_gap)}</b>` }]), { numeric: [1, 2] })}</div>`;
+  return `<div class="card"><h3>School exams vs board</h3><p class="muted small">${l.linked_students} students linked by board roll no / admission no${l.by_name ? ` (${l.by_name} by name - please check)` : ""}. Gap = how the board marks compare with the school exam %.</p>
+    ${table(["Subject", "Students", "Average gap (marks)"], l.by_subject.map((x) => [x.name, x.n, { html: gapWords(x.avg_gap, { higher: "higher in the board", lower: "lower in the board" }) }]), { numeric: [1, 2] })}</div>`;
 }
 
 function checksHtml(b) {
@@ -363,7 +363,7 @@ function drawTab(b) {
     const own = subs.filter((s) => s.vs_own !== null && s.vs_own_n >= 3).sort((a, c) => c.vs_own - a.vs_own);
     chart($("#bs-own"), "bar", own.map((s) => s.short), [{ data: own.map((s) => s.vs_own), backgroundColor: own.map((s) => s.vs_own >= 0 ? blue : "#F2A93B"), borderRadius: 5 }],
       { indexAxis: "y", x: { grid: { color: cssVar("--line") } }, y: { grid: { display: false } },
-        tooltip: { label: (c) => ` ${c.parsed.x >= 0 ? "+" : ""}${c.parsed.x.toFixed(1)} marks vs their other subjects (${own[c.dataIndex].vs_own_n} students)` } });
+        tooltip: { label: (c) => ` ${gapText(c.parsed.x, { than: "their other subjects", arrow: true })} (${own[c.dataIndex].vs_own_n} students)` } });
     const graded = b.meta.graded;
     const cats = graded ? GRADES : (subs[0] ? subs[0].bands.map((x) => x[0]) : []);
     const val = (s, g) => graded ? (s.grades[g] || 0) : ((s.bands.find((x) => x[0] === g) || [0, 0])[1]);
