@@ -153,7 +153,7 @@ function classPicker() {
   }
   return `<div class="card up-class">
     <div class="row between" style="gap:12px">
-      <div><h3 style="margin:0">Which class are these marks for?</h3></div>
+      <div><h3 style="margin:0">Which class are these marks for? ${qmark("pick-class")}</h3></div>
       <select class="sel-sm" id="up-cls" style="width:auto;min-width:180px;font-weight:600">
         <option value="" ${cls ? "" : "selected"}>Any class (the file says)</option>
         ${classes.map(([c, v]) => `<option value="${esc(c)}" ${c === cls ? "selected" : ""}>${esc(v.label)}</option>`).join("")}

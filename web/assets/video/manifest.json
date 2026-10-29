@@ -142,5 +142,23 @@
   "dur": 32.73,
   "fp": "70287e6a04",
   "size": 527415
+ },
+ "pick-class": {
+  "file": "pick-class.mp4",
+  "dur": 39.22,
+  "fp": "3ef3d2889c",
+  "size": 624017
+ },
+ "type-marks": {
+  "file": "type-marks.mp4",
+  "dur": 43.28,
+  "fp": "028c38840b",
+  "size": 691949
+ },
+ "paper-sheet": {
+  "file": "paper-sheet.mp4",
+  "dur": 41.34,
+  "fp": "94f4443b15",
+  "size": 643469
  }
 }
